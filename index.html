@@ -310,7 +310,9 @@ svg.cloth { display: block; overflow: visible; }
 .mapbtn:hover { background: var(--accent-wash); }
 .mapbtn i, .lchip i, .pick i { width: 10px; height: 10px; border-radius: 3px; background: var(--g); flex: none; display: inline-block; }
 .mapbtn.done span { color: var(--ink-2); }
-.gmap .also { font-size: 13px; color: var(--muted); margin-left: 4px; }
+.gmap .also { display: block; font-size: 13px; color: var(--muted); margin: -4px 0 4px 26px; line-height: 1.35; }
+.lchip.implied { border-style: dashed; opacity: .75; }
+.lchip small { font-weight: 400; color: var(--muted); }
 .ghead { scroll-margin-top: 80px; }
 dl.links { margin: 0 0 12px; display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: baseline; }
 dl.links dt { color: var(--muted); font-size: 14px; }
@@ -478,7 +480,7 @@ const live = col => Object.values(state[col]).filter(r => r && !r.deleted);
 function put(col, rec) { rec.updatedAt = Date.now(); state[col][rec.id] = rec; touched(); }
 function remove(col, id) { state[col][id] = { id, deleted: true, updatedAt: Date.now() }; touched(); }
 function setSetting(k, v) { state.settings = { ...state.settings, [k]: v, updatedAt: Date.now() }; touched(); }
-function touched() { if (typeof buildGraph === 'function') GRAPH = buildGraph(); cfg.lastChange = Date.now(); saveCfg(); saveLocal(); scheduleSync(2500); requestRender(); }
+function touched() { if (typeof buildGraph === 'function') { GRAPH = buildGraph(); REDUND = null; } cfg.lastChange = Date.now(); saveCfg(); saveLocal(); scheduleSync(2500); requestRender(); }
 
 function pick(a, b) {
   if (!a) return b; if (!b) return a;
@@ -520,75 +522,153 @@ function buildIndex() {
 let IDX = buildIndex();
 
 /* ---------- goal links ----------
-   contributes: from (specific) -> to (broader). A goal can have many parents.
-   related: symmetric, stored once under a sorted id. */
-const linkId = (type, a, b) => type === 'contributes' ? `c:${a}>${b}` : `r:${[a, b].sort().join('~')}`;
+   contributes: from (narrower) -> to (broader). A goal can have many parents.
+   mutual: two goals that feed each other; activity counts toward both.
+   related: connected by topic only; nothing rolls up.
+   The two symmetric types are stored once under a sorted id. */
+const linkId = (type, a, b) => type === 'contributes' ? `c:${a}>${b}` : `${type === 'mutual' ? 'm' : 'r'}:${[a, b].sort().join('~')}`;
+const DIRECT = 0.75;   // closeness assumed for links made by hand
 function buildGraph() {
-  const parents = new Map(), children = new Map(), related = new Map(), parentLinks = new Map();
+  const parents = new Map(), children = new Map(), related = new Map(), mutual = new Map(), parentLinks = new Map();
   const push = (m, k, v) => { if (!m.has(k)) m.set(k, []); if (!m.get(k).includes(v)) m.get(k).push(v); };
   for (const l of live('links')) {
     if (!goalById(l.from) || !goalById(l.to)) continue;
     if (l.type === 'contributes') { push(parents, l.from, l.to); push(children, l.to, l.from); push(parentLinks, l.from, l); }
+    else if (l.type === 'mutual') { push(mutual, l.from, l.to); push(mutual, l.to, l.from); }
     else { push(related, l.from, l.to); push(related, l.to, l.from); }
   }
-  return { parents, children, related, parentLinks };
+  return { parents, children, related, mutual, parentLinks };
 }
+let GRAPH = buildGraph();
+let REDUND = null;     // cache of implied links, cleared whenever links change
+const parentsOf = id => GRAPH.parents.get(id) || [];
+const childrenOf = id => GRAPH.children.get(id) || [];
+const relatedOf = id => GRAPH.related.get(id) || [];
+const mutualOf = id => GRAPH.mutual.get(id) || [];
+function walk(id, next) {
+  const seen = new Set(), stack = [...next(id)];
+  while (stack.length) { const x = stack.pop(); if (seen.has(x) || x === id) continue; seen.add(x); stack.push(...next(x)); }
+  return seen;
+}
+// what counts toward a goal: everything linked under it, plus goals it supports each way
+const feeders = id => [...childrenOf(id), ...mutualOf(id)];
+const descendants = id => walk(id, feeders);
+const family = id => new Set([id, ...descendants(id)]);
+const isRollup = g => g.unit === 'none' || feeders(g.id).length > 0;
+const byName = (a, b) => a.name.localeCompare(b.name);
+const goalNames = ids => ids.map(goalById).filter(Boolean).sort(byName).map(g => esc(g.name)).join(', ');
 
-/* ---------- colors ----------
-   A goal on automatic color takes its main parent's color (strongest link first,
-   then the earliest), so a cluster shares the color of the goal it grows from.
-   With no parent it borrows from the oldest related goal, else keeps its own. */
+/* ---------- implied links (transitive reduction) ----------
+   A "part of" link from A to C adds nothing when A already reaches C through other
+   links (A -> B -> C): every progress count already includes it. Suggestions like that
+   are hidden, and existing ones are offered for tidying. */
+function upMap(extra = []) {
+  const up = new Map();
+  const add = (a, b, c) => { if (!up.has(a)) up.set(a, []); up.get(a).push({ to: b, c }); };
+  for (const l of live('links')) {
+    if (!goalById(l.from) || !goalById(l.to)) continue;
+    const c = l.closeness ?? DIRECT;
+    if (l.type === 'contributes') add(l.from, l.to, c);
+    else if (l.type === 'mutual') { add(l.from, l.to, c); add(l.to, l.from, c); }
+  }
+  for (const e of extra) add(e.from, e.to, e.c);
+  return up;
+}
+// a route from a to c that skips the direct link, using only links at least minC close;
+// returns the goals in between, or null
+function altPath(a, c, up, minC = 0) {
+  const prev = new Map([[a, null]]), queue = [];
+  for (const e of up.get(a) || []) if (e.to !== c && e.c >= minC && !prev.has(e.to)) { prev.set(e.to, a); queue.push(e.to); }
+  while (queue.length) {
+    const x = queue.shift();
+    for (const e of up.get(x) || []) {
+      if (e.c < minC) continue;
+      if (e.to === c) { const p = []; for (let y = x; y !== a; y = prev.get(y)) p.unshift(y); return p; }
+      if (prev.has(e.to)) continue;
+      prev.set(e.to, x); queue.push(e.to);
+    }
+  }
+  return null;
+}
+function redundantLinks() {
+  const up = upMap(), out = [];
+  for (const l of live('links')) {
+    if (l.type !== 'contributes') continue;
+    const a = goalById(l.from), c = goalById(l.to);
+    if (!a || !c || a.archived || c.archived) continue;
+    const path = altPath(l.from, l.to, up);
+    if (path) out.push({ link: l, path });
+  }
+  return out;
+}
+function redundantSet() { if (!REDUND) REDUND = new Map(redundantLinks().map(r => [r.link.id, r])); return REDUND; }
+const isImplied = (from, to) => redundantSet().has(linkId('contributes', from, to));
+const directParents = id => parentsOf(id).filter(p => !isImplied(id, p));
+
+/* ---------- placement and colors ----------
+   Each goal sits under one main parent: the closest non-implied one (then the most
+   certain, then the earliest). A goal with no parent of its own sits beside a goal it
+   supports each way. On automatic color, a goal takes the color of where it sits, so a
+   cluster shares its root's color. */
 const isAutoColor = g => g.colorMode !== 'manual';
 function mainParent(g) {
-  const ls = (GRAPH.parentLinks.get(g.id) || []).filter(l => goalById(l.to) && !goalById(l.to).archived);
+  const ls = (GRAPH.parentLinks.get(g.id) || []).filter(l => { const p = goalById(l.to); return p && !p.archived && !isImplied(g.id, l.to); });
   if (!ls.length) return null;
-  ls.sort((a, b) => (b.score || 0) - (a.score || 0) || (a.createdAt || a.updatedAt) - (b.createdAt || b.updatedAt));
+  ls.sort((a, b) => (b.closeness ?? DIRECT) - (a.closeness ?? DIRECT) || (b.score || 0) - (a.score || 0) || (a.createdAt || a.updatedAt) - (b.createdAt || b.updatedAt));
   return goalById(ls[0].to);
+}
+function placementParent(g) {
+  const p = mainParent(g);
+  if (p) return p;
+  for (const m of mutualOf(g.id).map(goalById).filter(x => x && !x.archived).sort((a, b) => a.createdAt - b.createdAt)) {
+    const mp = mainParent(m);
+    if (mp && mp.id !== g.id) return mp;
+  }
+  return null;
 }
 function colorSource(g, seen = new Set()) {
   if (!isAutoColor(g) || seen.has(g.id)) return null;
   seen.add(g.id);
-  const p = mainParent(g);
+  const p = placementParent(g);
   if (p) return p;
-  const older = relatedOf(g.id).map(goalById).filter(o => o && !o.archived && o.createdAt < g.createdAt).sort((a, b) => a.createdAt - b.createdAt)[0];
+  const older = [...mutualOf(g.id), ...relatedOf(g.id)].map(goalById).filter(o => o && !o.archived && o.createdAt < g.createdAt).sort((a, b) => a.createdAt - b.createdAt)[0];
   return older || null;
 }
 function gc(g, seen = new Set()) {
   const src = colorSource(g, seen);
   return src ? gc(src, seen) : (g.color || 1);
 }
-let GRAPH = buildGraph();
-const parentsOf = id => GRAPH.parents.get(id) || [];
-const childrenOf = id => GRAPH.children.get(id) || [];
-const relatedOf = id => GRAPH.related.get(id) || [];
-function walk(id, next) {
-  const seen = new Set(), stack = [...next(id)];
-  while (stack.length) { const x = stack.pop(); if (seen.has(x) || x === id) continue; seen.add(x); stack.push(...next(x)); }
-  return seen;
-}
-const descendants = id => walk(id, childrenOf);
-const ancestors = id => walk(id, parentsOf);
-const family = id => new Set([id, ...descendants(id)]);
-const isRollup = g => g.unit === 'none' || childrenOf(g.id).length > 0;
-const byName = (a, b) => a.name.localeCompare(b.name);
-const goalNames = ids => ids.map(goalById).filter(Boolean).sort(byName).map(g => esc(g.name)).join(', ');
 
 function addLink(type, from, to, extra = null) {
   if (from === to) return 'A goal can\'t link to itself.';
+  const existing = id => { const l = state.links[id]; return l && !l.deleted ? l : null; };
+  const drop = id => { if (existing(id)) state.links[id] = { id, deleted: true, updatedAt: Date.now() }; };
   if (type === 'contributes') {
-    if (descendants(from).has(to)) return `${goalById(to).name} already feeds into ${goalById(from).name}, so linking it the other way would make a loop.`;
-    const rel = state.links[linkId('related', from, to)];
-    if (rel && !rel.deleted) state.links[rel.id] = { id: rel.id, deleted: true, updatedAt: Date.now() };
-  } else {
-    const c1 = state.links[linkId('contributes', from, to)], c2 = state.links[linkId('contributes', to, from)];
-    if ((c1 && !c1.deleted) || (c2 && !c2.deleted)) return 'These goals are already linked as part of each other.';
+    if (walk(from, childrenOf).has(to)) return `${goalById(to).name} is already part of ${goalById(from).name}, so linking it the other way would make a loop.`;
+    drop(linkId('related', from, to)); drop(linkId('mutual', from, to));
+  } else if (type === 'mutual') {
+    drop(linkId('contributes', from, to)); drop(linkId('contributes', to, from)); drop(linkId('related', from, to));
+  } else if (existing(linkId('contributes', from, to)) || existing(linkId('contributes', to, from)) || existing(linkId('mutual', from, to))) {
+    return 'These goals are already linked more closely than "related".';
   }
   const id = linkId(type, from, to);
-  const [a, b] = type === 'related' ? [from, to].sort() : [from, to];
+  const [a, b] = type === 'contributes' ? [from, to] : [from, to].sort();
   const rec = { id, type, from: a, to: b, createdAt: Date.now() };
   if (extra) Object.assign(rec, extra);
   put('links', rec);
   return null;
+}
+// remove implied links one at a time, rechecking after each, until none are left
+function tidyImplied() {
+  let n = 0;
+  for (let guard = 0; guard < 500; guard++) {
+    const r = redundantLinks()[0];
+    if (!r) break;
+    state.links[r.link.id] = { id: r.link.id, deleted: true, updatedAt: Date.now() };
+    n++;
+  }
+  if (n) touched();
+  return n;
 }
 
 // a day counts for a goal when the goal or anything feeding into it was logged
@@ -720,23 +800,54 @@ function requestSuggestions(goalId) {
 }
 
 const pairKey = (a, b) => [a, b].sort().join('|');
-const linkedEither = (a, b) => parentsOf(a).includes(b) || parentsOf(b).includes(a) || relatedOf(a).includes(b);
-function pendingSuggestions(goalId = null) {
-  return Object.values(sugg.suggestions || {}).filter(s => {
+const linkedEither = (a, b) => parentsOf(a).includes(b) || parentsOf(b).includes(a) || relatedOf(a).includes(b) || mutualOf(a).includes(b);
+// Suggestions still open for review. A "part of" suggestion is hidden when other links or
+// suggestions, each at least as close, already connect the two goals: Contest -> Writing ->
+// Change the World makes a direct Contest -> Change the World link redundant.
+function reviewableSuggestions() {
+  const open = Object.values(sugg.suggestions || {}).filter(s => {
     const a = goalById(s.from), b = goalById(s.to);
     if (!a || !b || a.archived || b.archived) return false;
-    if (goalId && s.from !== goalId && s.to !== goalId) return false;
     const d = state.dismissed[s.pair || pairKey(s.from, s.to)];
     if (d && !d.deleted) return false;
     return !linkedEither(s.from, s.to);
-  }).sort((x, y) => (y.p || 0) - (x.p || 0));
+  });
+  const extra = open.filter(s => s.type === 'contributes' || s.type === 'mutual').flatMap(s => {
+    const c = s.closeness ?? 0.5;
+    return s.type === 'mutual' ? [{ from: s.from, to: s.to, c }, { from: s.to, to: s.from, c }] : [{ from: s.from, to: s.to, c }];
+  });
+  const up = upMap(extra);
+  const shown = [], hidden = [];
+  for (const s of open) {
+    const via = s.type === 'contributes' ? altPath(s.from, s.to, up, s.closeness ?? 0) : null;
+    (via ? hidden : shown).push(via ? { ...s, via } : s);
+  }
+  const rank = s => (s.closeness ?? 0.5) * (s.p || 0);
+  shown.sort((x, y) => rank(y) - rank(x));
+  return { shown, hidden };
+}
+function pendingSuggestions(goalId = null) {
+  const { shown } = reviewableSuggestions();
+  return goalId ? shown.filter(s => s.from === goalId || s.to === goalId) : shown;
+}
+function closenessLabel(c) {
+  if (c == null) return '';
+  return c >= 0.875 ? 'direct step' : c >= 0.625 ? 'close' : c >= 0.375 ? 'indirect' : 'distant';
 }
 function suggestionRow(s) {
   const a = goalById(s.from), b = goalById(s.to);
-  const verb = s.type === 'contributes' ? 'is part of' : 'is related to';
-  return `<li><span class="sg-text"><span class="sg-goal" style="--g:var(--g${gc(a)})"><i></i>${esc(a.name)}</span> <span class="muted">${verb}</span> <span class="sg-goal" style="--g:var(--g${gc(b)})"><i></i>${esc(b.name)}</span>
-    <span class="sg-p">${Math.round((s.p || 0) * 100)}% sure</span></span>
-    <span class="row"><button class="btn" data-act="sugg-add" data-pair="${esc(s.pair || pairKey(s.from, s.to))}">Add</button><button class="btn quiet" data-act="sugg-dismiss" data-pair="${esc(s.pair || pairKey(s.from, s.to))}">Dismiss</button></span></li>`;
+  const A = `<span class="sg-goal" style="--g:var(--g${gc(a)})"><i></i>${esc(a.name)}</span>`;
+  const B = `<span class="sg-goal" style="--g:var(--g${gc(b)})"><i></i>${esc(b.name)}</span>`;
+  const text = s.type === 'contributes' ? `${A} <span class="muted">is part of</span> ${B}`
+    : s.type === 'mutual' ? `${A} <span class="muted">and</span> ${B} <span class="muted">support each other</span>`
+    : `${A} <span class="muted">is related to</span> ${B}`;
+  const cl = closenessLabel(s.closeness);
+  const gapHint = s.type === 'contributes' && s.closeness != null && s.closeness < 0.375
+    ? ' There may be a step in between that isn\'t a goal yet.' : '';
+  const key = esc(s.pair || pairKey(s.from, s.to));
+  return `<li><span class="sg-text">${text}
+    <span class="sg-p">${Math.round((s.p || 0) * 100)}% sure${cl ? `, ${cl}` : ''}.${gapHint}</span></span>
+    <span class="row"><button class="btn" data-act="sugg-add" data-pair="${key}">Add</button><button class="btn quiet" data-act="sugg-dismiss" data-pair="${key}">Dismiss</button></span></li>`;
 }
 function suggestionsPanel() {
   if (!cfg.jev) return '';
@@ -748,6 +859,8 @@ function suggestionsPanel() {
   if (waiting) h += `<p class="small ink2">Asking Jev how your new goal fits with the others. This usually takes under a minute.</p>`;
   if (failed) h += `<p class="status-line err">${esc(failed)}</p>`;
   if (list.length) h += `<ul class="sg-list">${list.map(suggestionRow).join('')}</ul>`;
+  const nHidden = reviewableSuggestions().hidden.length;
+  if (nHidden) h += `<p class="small muted">${nHidden} more ${nHidden === 1 ? 'suggestion is' : 'suggestions are'} hidden because other links already cover ${nHidden === 1 ? 'it' : 'them'}.</p>`;
   if (linkError && linkError.goalId === 'sugg') h += `<p class="status-line err" role="alert">${esc(linkError.msg)}</p>`;
   return h + '</section>';
 }
@@ -887,7 +1000,7 @@ function chartWidth() { return Math.max(260, Math.min(648, $('#app').clientWidth
 
 function render() {
   IDX = buildIndex();
-  GRAPH = buildGraph();
+  GRAPH = buildGraph(); REDUND = null;
   if (dayView > today()) dayView = today();
   const focusKey = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.key : null;
   charts.clear();
@@ -1203,6 +1316,52 @@ function viewProgress() {
   return h;
 }
 
+/* Map of how goals connect. Each goal appears once, under the goal it sits in
+   (see placementParent). Its other parents and any goal it supports each way are
+   noted under its name instead of repeating it in another branch. Implied links
+   are left out entirely. */
+function goalMap(goals) {
+  const linked = goals.filter(g => parentsOf(g.id).length || childrenOf(g.id).length || mutualOf(g.id).length);
+  if (!linked.some(g => directParents(g.id).length || mutualOf(g.id).length)) return '';
+  const ids = new Set(linked.map(g => g.id));
+  const place = new Map();
+  for (const g of linked) { const p = placementParent(g); place.set(g.id, p && ids.has(p.id) ? p.id : null); }
+  const kids = new Map();
+  for (const [id, p] of place) if (p) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(goalById(id)); }
+  const done = new Set();
+  const node = (g, depth) => {
+    if (done.has(g.id)) return '';
+    done.add(g.id);
+    const notes = [];
+    const others = directParents(g.id).filter(p => p !== place.get(g.id) && !goalById(p).archived);
+    if (others.length) notes.push(`also part of ${goalNames(others)}`);
+    const mut = mutualOf(g.id).filter(m => !goalById(m).archived);
+    if (mut.length) notes.push(`supports each other with ${goalNames(mut)}`);
+    const sub = (kids.get(g.id) || []).sort(byName).map(k => node(k, depth + 1)).join('');
+    return `<li style="--g:var(--g${gc(g)})"><button class="mapbtn ${g.completedOn ? 'done' : ''}" data-act="map-open" data-id="${esc(g.id)}"><i></i><span>${esc(g.name)}${g.completedOn ? ' ✓' : ''}</span></button>
+      ${notes.length ? `<span class="also">${notes.join('; ')}</span>` : ''}${sub ? `<ul>${sub}</ul>` : ''}</li>`;
+  };
+  const roots = linked.filter(g => !place.get(g.id)).sort((a, b) => (kids.get(b.id) || []).length - (kids.get(a.id) || []).length || byName(a, b));
+  let items = roots.map(r => node(r, 0)).join('');
+  // anything left over sits in a loop of links; show it at the top level rather than lose it
+  items += linked.filter(g => !done.has(g.id)).map(g => node(g, 0)).join('');
+  return `<nav class="gmap" aria-label="How your goals connect"><ul>${items}</ul></nav>`;
+}
+function tidyPanel() {
+  const rs = [...redundantSet().values()];
+  if (!rs.length) return '';
+  const rows = rs.map(({ link, path }) => {
+    const a = goalById(link.from), c = goalById(link.to);
+    const route = [a.name, ...path.map(id => goalById(id).name), c.name].map(esc).join(' → ');
+    return `<li><span class="sg-text"><span class="sg-goal" style="--g:var(--g${gc(a)})"><i></i>${esc(a.name)}</span> <span class="muted">is part of</span> <span class="sg-goal" style="--g:var(--g${gc(c)})"><i></i>${esc(c.name)}</span>
+      <span class="sg-p">Already covered by ${route}.</span></span>
+      <span class="row"><button class="btn quiet" data-act="tidy-one" data-link="${esc(link.id)}">Remove</button></span></li>`;
+  }).join('');
+  return `<section class="sugg"><h2 class="sub">Links you can drop</h2>
+    <p class="small ink2">Other links already connect these goals, so removing them won't change any progress counts. It just keeps the map clean.</p>
+    <ul class="sg-list">${rows}</ul>
+    ${rs.length > 1 ? `<button class="btn" data-act="tidy-all" style="margin-bottom:8px">Remove all ${rs.length}</button>` : ''}</section>`;
+}
 function viewGoals() {
   const goals = allGoals();
   const active = goals.filter(isOpen), archived = goals.filter(g => g.archived);
@@ -1212,19 +1371,9 @@ function viewGoals() {
   h += '</div>';
   if (goalForm === 'new') h += `<div class="panel">${goalFormHTML(null)}</div>`;
   if (!goals.length && goalForm !== 'new') h += `<div class="empty"><p>No goals yet. Short-term or long-term, each one gets a current bet and a way to track it.</p></div>`;
-  // map of how goals nest, shown once anything is linked as part of something else
-  const roots = active.filter(g => childrenOf(g.id).some(c => !goalById(c).archived) && !parentsOf(g.id).some(p => !goalById(p).archived)).sort(byName);
   h += suggestionsPanel();
-  if (roots.length) {
-    const node = (id, path) => {
-      const g = goalById(id);
-      const kids = childrenOf(id).map(goalById).filter(x => x && !x.archived).sort(byName);
-      const others = path.length ? parentsOf(id).filter(p => p !== path[path.length - 1] && !goalById(p).archived) : [];
-      return `<li style="--g:var(--g${gc(g)})"><button class="mapbtn ${g.completedOn ? 'done' : ''}" data-act="map-open" data-id="${esc(id)}"><i></i><span>${esc(g.name)}${g.completedOn ? ' ✓' : ''}</span></button>${others.length ? `<span class="also">also in ${goalNames(others)}</span>` : ''}
-        ${kids.length && !path.includes(id) ? `<ul>${kids.map(k => node(k.id, [...path, id])).join('')}</ul>` : ''}</li>`;
-    };
-    h += `<nav class="gmap" aria-label="How your goals connect"><ul>${roots.map(r => node(r.id, [])).join('')}</ul></nav>`;
-  }
+  h += tidyPanel();
+  h += goalMap(goals.filter(g => !g.archived));
   if (active.length) h += `<ul class="glist">${active.map(goalItem).join('')}</ul>`;
   if (completed.length) h += `<h2>Completed</h2><ul class="glist">${completed.map(goalItem).join('')}</ul>`;
   if (archived.length) h += `<h2>Archived</h2><ul class="glist">${archived.map(goalItem).join('')}</ul>`;
@@ -1240,7 +1389,7 @@ function goalItem(g) {
       <span class="gr-name">${esc(g.name)}</span>
       <span class="tag">${g.completedOn ? `Done ${esc(fmtD(g.completedOn))}` : g.unit === 'once' ? 'One time' : g.horizon === 'long' ? 'Long term' : 'Short term'}</span>
       <span class="meta">${g.completedOn ? 'Completed' : g.bet ? 'Bet: ' + esc(g.bet) : 'No current bet'}${tried ? ` · ${tried} tried, ${dead} dead ${dead === 1 ? 'end' : 'ends'}` : ''}</span>
-      ${parentsOf(g.id).length ? `<span class="meta small muted" style="grid-column:2 / span 2">Part of ${goalNames(parentsOf(g.id))}</span>` : ''}
+      ${directParents(g.id).length ? `<span class="meta small muted" style="grid-column:2 / span 2">Part of ${goalNames(directParents(g.id))}</span>` : ''}
     </button>`;
   if (open) {
     h += '<div class="gbody">';
@@ -1288,24 +1437,27 @@ function goalItem(g) {
     // links
     h += '<h3>Links</h3>';
     const chips = (ids, kind) => ids.map(goalById).filter(Boolean).sort(byName).map(o => {
-      const lid = kind === 'parent' ? linkId('contributes', g.id, o.id) : kind === 'child' ? linkId('contributes', o.id, g.id) : linkId('related', g.id, o.id);
-      return `<span class="lchip" style="--g:var(--g${gc(o)})"><button data-act="map-open" data-id="${esc(o.id)}"><i></i>${esc(o.name)}</button><button class="x" data-act="unlink" data-link="${esc(lid)}" aria-label="Remove link to ${esc(o.name)}">×</button></span>`;
+      const lid = kind === 'parent' ? linkId('contributes', g.id, o.id) : kind === 'child' ? linkId('contributes', o.id, g.id)
+        : kind === 'mutual' ? linkId('mutual', g.id, o.id) : linkId('related', g.id, o.id);
+      const implied = (kind === 'parent' && isImplied(g.id, o.id)) || (kind === 'child' && isImplied(o.id, g.id));
+      return `<span class="lchip ${implied ? 'implied' : ''}" style="--g:var(--g${gc(o)})" ${implied ? 'title="Other links already cover this one"' : ''}><button data-act="map-open" data-id="${esc(o.id)}"><i></i>${esc(o.name)}${implied ? ' <small>(covered)</small>' : ''}</button><button class="x" data-act="unlink" data-link="${esc(lid)}" aria-label="Remove link to ${esc(o.name)}">×</button></span>`;
     }).join('');
-    const ps = parentsOf(g.id), cs = childrenOf(g.id), rs = relatedOf(g.id);
-    if (ps.length || cs.length || rs.length) {
+    const ps = parentsOf(g.id), cs = childrenOf(g.id), ms = mutualOf(g.id), rs = relatedOf(g.id);
+    if (ps.length || cs.length || ms.length || rs.length) {
       h += '<dl class="links">';
       if (ps.length) h += `<dt>Part of</dt><dd>${chips(ps, 'parent')}</dd>`;
       if (cs.length) h += `<dt>Made up of</dt><dd>${chips(cs, 'child')}</dd>`;
+      if (ms.length) h += `<dt>Supports each other with</dt><dd>${chips(ms, 'mutual')}</dd>`;
       if (rs.length) h += `<dt>Related to</dt><dd>${chips(rs, 'related')}</dd>`;
       h += '</dl>';
-    } else h += `<p class="muted small">Link this goal to broader goals it serves, narrower goals that feed it, or goals that are just related.</p>`;
+    } else h += `<p class="muted small">Link this goal to broader goals it serves, narrower goals that feed it, goals it supports each way, or goals that are just related.</p>`;
     const others = allGoals().filter(o => o.id !== g.id && !o.archived).sort(byName);
     const mine = cfg.jev ? pendingSuggestions(g.id) : [];
     if (mine.length) h += `<p class="small ink2" style="margin:0 0 6px">Suggested by Jev:</p><ul class="sg-list">${mine.map(suggestionRow).join('')}</ul>`;
     if (cfg.jev && syncReady()) h += `<p class="small" style="margin:0 0 10px"><a href="#" data-act="sugg-ask" data-id="${esc(g.id)}">Ask Jev to check this goal again</a></p>`;
     if (others.length) {
       h += `<form class="row linkform" data-form="link" data-id="${esc(g.id)}">
-        <label class="sr" for="lk-${esc(g.id)}">Link type</label><select id="lk-${esc(g.id)}" name="kind"><option value="parent">Part of</option><option value="child">Made up of</option><option value="related">Related to</option></select>
+        <label class="sr" for="lk-${esc(g.id)}">Link type</label><select id="lk-${esc(g.id)}" name="kind"><option value="parent">Part of</option><option value="child">Made up of</option><option value="mutual">Supports each other with</option><option value="related">Related to</option></select>
         <label class="sr" for="lt-${esc(g.id)}">Goal</label><select id="lt-${esc(g.id)}" name="target">${others.map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select>
         <button class="btn" type="submit">Link</button></form>`;
       if (linkError && linkError.goalId === g.id) h += `<p class="status-line err" role="alert">${esc(linkError.msg)}</p>`;
@@ -1567,12 +1719,16 @@ document.addEventListener('click', e => {
       break;
     case 'sugg-add': {
       const s = (sugg.suggestions || {})[t.dataset.pair]; if (!s) break;
-      const err = addLink(s.type, s.from, s.to, { score: s.p, source: 'jev' });
+      const extra = { score: s.p, source: 'jev' };
+      if (s.closeness != null) extra.closeness = s.closeness;
+      const err = addLink(s.type, s.from, s.to, extra);
       linkError = err ? { goalId: 'sugg', msg: err } : null;
       if (err) render();
       break;
     }
     case 'sugg-dismiss': put('dismissed', { id: t.dataset.pair }); break;
+    case 'tidy-one': { const l = state.links[t.dataset.link]; if (l && !l.deleted) remove('links', l.id); break; }
+    case 'tidy-all': tidyImplied(); break;
     case 'sugg-ask': e.preventDefault(); dispatchSuggest(id); break;
     case 'sugg-all': dispatchSuggest('all'); renderSettings(); break;
     case 'unlink': { const l = state.links[t.dataset.link]; linkError = null; if (l && !l.deleted) remove('links', l.id); break; }
@@ -1651,6 +1807,7 @@ document.addEventListener('submit', async e => {
     if (!goalById(gid) || !goalById(target)) return;
     const err = k === 'parent' ? addLink('contributes', gid, target)
       : k === 'child' ? addLink('contributes', target, gid)
+      : k === 'mutual' ? addLink('mutual', gid, target)
       : addLink('related', gid, target);
     linkError = err ? { goalId: gid, msg: err } : null;
     render();
