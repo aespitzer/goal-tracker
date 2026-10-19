@@ -282,6 +282,8 @@ svg.cloth { display: block; overflow: visible; }
 .swatches input { position: absolute; opacity: 0; inset: 0; }
 .swatches span { display: block; width: 34px; height: 34px; border-radius: 50%; background: var(--g); border: 3px solid var(--surface); box-shadow: 0 0 0 1.5px var(--base); cursor: pointer; }
 .swatches input:checked + span { box-shadow: 0 0 0 3px var(--ink); }
+.swatches label.auto span { width: auto; height: 34px; border-radius: 999px; padding: 0 14px; display: flex; align-items: center; font-weight: 700; font-size: 15px; border: 1.5px solid var(--base); box-shadow: none; background: var(--surface); color: var(--ink); }
+.swatches label.auto input:checked + span { border-color: var(--ink); box-shadow: 0 0 0 1.5px var(--ink); }
 .swatches input:focus-visible + span { outline: 2.5px solid var(--accent); outline-offset: 3px; }
 .panel { background: var(--surface); border: 1px solid var(--hair); border-radius: 12px; padding: 16px; margin: 12px 0; }
 
@@ -307,6 +309,7 @@ svg.cloth { display: block; overflow: visible; }
 .gmap > ul > li > .mapbtn { font: 700 19px/1.2 var(--display); }
 .mapbtn:hover { background: var(--accent-wash); }
 .mapbtn i, .lchip i, .pick i { width: 10px; height: 10px; border-radius: 3px; background: var(--g); flex: none; display: inline-block; }
+.mapbtn.done span { color: var(--ink-2); }
 .gmap .also { font-size: 13px; color: var(--muted); margin-left: 4px; }
 .ghead { scroll-margin-top: 80px; }
 dl.links { margin: 0 0 12px; display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: baseline; }
@@ -328,6 +331,16 @@ fieldset.picker small { display: block; color: var(--muted); font-size: 14px; ma
 .pick input:checked + span { border-color: var(--g); background: color-mix(in srgb, var(--g) 18%, var(--surface)); }
 .pick input:focus-visible + span { outline: 2.5px solid var(--accent); outline-offset: 2px; }
 h2.sub { font-size: 19px; margin: 26px 0 8px; }
+.sugg { background: var(--surface); border: 1px solid var(--hair); border-radius: 12px; padding: 4px 14px 10px; margin: 0 0 22px; }
+.sugg h2.sub { margin-top: 12px; }
+.sg-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.sg-list li { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--hair); }
+.sg-list li:last-child { border-bottom: 0; }
+.sg-text { flex: 1 1 220px; line-height: 1.6; }
+.sg-goal { font-weight: 700; white-space: nowrap; }
+.sg-goal i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; background: var(--g); margin-right: 5px; vertical-align: 1px; }
+.sg-p { display: block; font-size: 13px; color: var(--muted); }
+.sg-list .btn { min-height: 36px; }
 .wk.broad { margin-bottom: 4px; }
 .wk.broad .nm { text-decoration: none; color: var(--ink); }
 .wk.broad .nm:hover span { text-decoration: underline; }
@@ -439,8 +452,9 @@ function stable(v) {
 const LS_STATE = 'stitch.state.v1';
 const LS_CFG = 'stitch.cfg.v1';
 const LS_UI = 'stitch.ui.v1';
-const COLS = ['goals', 'logs', 'bets', 'wins', 'reviews', 'ideas', 'links'];
-const emptyState = () => ({ version: 1, goals: {}, logs: {}, bets: {}, wins: {}, reviews: {}, ideas: {}, links: {}, settings: { ideaThreshold: 20, updatedAt: 0 } });
+const COLS = ['goals', 'logs', 'bets', 'wins', 'reviews', 'ideas', 'links', 'dismissed'];
+const emptyState = () => ({ version: 1, goals: {}, logs: {}, bets: {}, wins: {}, reviews: {}, ideas: {}, links: {}, dismissed: {}, settings: { ideaThreshold: 20, updatedAt: 0 } });
+const LS_SUGG = 'stitch.suggestions.v1';
 
 function normalize(s) {
   const e = emptyState();
@@ -453,7 +467,9 @@ function readLS(k, fallback) { try { const v = JSON.parse(localStorage.getItem(k
 function writeLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
 let state = normalize(readLS(LS_STATE, null));
-let cfg = Object.assign({ owner: '', repo: 'goal-tracker-data', path: 'data.json', token: '', lastSync: 0, lastChange: 0, device: '', theme: 'auto' }, readLS(LS_CFG, {}));
+let cfg = Object.assign({ owner: '', repo: 'goal-tracker-data', path: 'data.json', token: '', lastSync: 0, lastChange: 0, device: '', theme: 'auto',
+  jev: false, branch: 'main', pendingSuggest: [], lastDispatch: 0, jevError: '' }, readLS(LS_CFG, {}));
+let sugg = readLS(LS_SUGG, { suggestions: {}, status: null });
 if (!cfg.device) { cfg.device = 'device-' + Math.random().toString(36).slice(2, 6); writeLS(LS_CFG, cfg); }
 const saveCfg = () => writeLS(LS_CFG, cfg);
 const saveLocal = () => writeLS(LS_STATE, state);
@@ -482,7 +498,10 @@ function merge(a, b) {
 
 /* ================= derived data ================= */
 const goalById = id => { const g = state.goals[id]; return g && !g.deleted ? g : null; };
-const activeGoals = () => live('goals').filter(g => !g.archived).sort((a, b) => a.createdAt - b.createdAt);
+const isOpen = g => !g.archived && !g.completedOn;
+const activeGoals = () => live('goals').filter(isOpen).sort((a, b) => a.createdAt - b.createdAt);
+// goals that belong on a given day's check-in list: open then, or a one-time goal finished that day
+const goalsForDay = day => live('goals').filter(g => !g.archived && (!g.completedOn || g.completedOn >= day)).sort((a, b) => a.createdAt - b.createdAt);
 const allGoals = () => live('goals').sort((a, b) => a.createdAt - b.createdAt);
 const logKey = (date, gid) => `${date}|${gid}`;
 const getLog = (date, gid) => { const l = state.logs[logKey(date, gid)]; return l && !l.deleted ? l : null; };
@@ -505,14 +524,38 @@ let IDX = buildIndex();
    related: symmetric, stored once under a sorted id. */
 const linkId = (type, a, b) => type === 'contributes' ? `c:${a}>${b}` : `r:${[a, b].sort().join('~')}`;
 function buildGraph() {
-  const parents = new Map(), children = new Map(), related = new Map();
+  const parents = new Map(), children = new Map(), related = new Map(), parentLinks = new Map();
   const push = (m, k, v) => { if (!m.has(k)) m.set(k, []); if (!m.get(k).includes(v)) m.get(k).push(v); };
   for (const l of live('links')) {
     if (!goalById(l.from) || !goalById(l.to)) continue;
-    if (l.type === 'contributes') { push(parents, l.from, l.to); push(children, l.to, l.from); }
+    if (l.type === 'contributes') { push(parents, l.from, l.to); push(children, l.to, l.from); push(parentLinks, l.from, l); }
     else { push(related, l.from, l.to); push(related, l.to, l.from); }
   }
-  return { parents, children, related };
+  return { parents, children, related, parentLinks };
+}
+
+/* ---------- colors ----------
+   A goal on automatic color takes its main parent's color (strongest link first,
+   then the earliest), so a cluster shares the color of the goal it grows from.
+   With no parent it borrows from the oldest related goal, else keeps its own. */
+const isAutoColor = g => g.colorMode !== 'manual';
+function mainParent(g) {
+  const ls = (GRAPH.parentLinks.get(g.id) || []).filter(l => goalById(l.to) && !goalById(l.to).archived);
+  if (!ls.length) return null;
+  ls.sort((a, b) => (b.score || 0) - (a.score || 0) || (a.createdAt || a.updatedAt) - (b.createdAt || b.updatedAt));
+  return goalById(ls[0].to);
+}
+function colorSource(g, seen = new Set()) {
+  if (!isAutoColor(g) || seen.has(g.id)) return null;
+  seen.add(g.id);
+  const p = mainParent(g);
+  if (p) return p;
+  const older = relatedOf(g.id).map(goalById).filter(o => o && !o.archived && o.createdAt < g.createdAt).sort((a, b) => a.createdAt - b.createdAt)[0];
+  return older || null;
+}
+function gc(g, seen = new Set()) {
+  const src = colorSource(g, seen);
+  return src ? gc(src, seen) : (g.color || 1);
 }
 let GRAPH = buildGraph();
 const parentsOf = id => GRAPH.parents.get(id) || [];
@@ -530,7 +573,7 @@ const isRollup = g => g.unit === 'none' || childrenOf(g.id).length > 0;
 const byName = (a, b) => a.name.localeCompare(b.name);
 const goalNames = ids => ids.map(goalById).filter(Boolean).sort(byName).map(g => esc(g.name)).join(', ');
 
-function addLink(type, from, to) {
+function addLink(type, from, to, extra = null) {
   if (from === to) return 'A goal can\'t link to itself.';
   if (type === 'contributes') {
     if (descendants(from).has(to)) return `${goalById(to).name} already feeds into ${goalById(from).name}, so linking it the other way would make a loop.`;
@@ -542,7 +585,9 @@ function addLink(type, from, to) {
   }
   const id = linkId(type, from, to);
   const [a, b] = type === 'related' ? [from, to].sort() : [from, to];
-  put('links', { id, type, from: a, to: b });
+  const rec = { id, type, from: a, to: b, createdAt: Date.now() };
+  if (extra) Object.assign(rec, extra);
+  put('links', rec);
   return null;
 }
 
@@ -576,6 +621,7 @@ function unitWord(g, n) {
 }
 function fmtAmt(g, a) {
   if (g.unit === 'none') return a ? 'Active' : 'No activity';
+  if (g.unit === 'once') return a ? 'Completed' : 'Not yet';
   if (!a) return g.unit === 'check' ? 'Not yet' : g.unit === 'minutes' ? '0 min' : `0 ${unitWord(g, 0)}`;
   if (g.unit === 'minutes') return a >= 120 ? `${+(a / 60).toFixed(1)} h` : `${a} min`;
   if (g.unit === 'check') return 'Done';
@@ -585,6 +631,7 @@ function fmtTotal(g, total, days) {
   if (g.unit === 'minutes') return total >= 60 ? `${+(total / 60).toFixed(1)} hours` : `${total} min`;
   if (g.unit === 'check') return `${days} ${days === 1 ? 'day' : 'days'}`;
   if (g.unit === 'none') return `${days} active ${days === 1 ? 'day' : 'days'}`;
+  if (g.unit === 'once') return g.completedOn ? `completed ${fmtD(g.completedOn)}` : 'not done yet';
   return `${total} ${unitWord(g, total)}`;
 }
 function familyActiveTotal(gid) {
@@ -617,7 +664,92 @@ async function checkRepo() {
   if (r.status === 404) throw new SyncError(`Can't see ${cfg.owner}/${cfg.repo}. Check the spelling, and that the token was given access to this repo.`);
   if (!r.ok) throw new SyncError(`GitHub returned ${r.status}: ${await ghMessage(r)}`);
   const j = await r.json();
+  if (j.default_branch && j.default_branch !== cfg.branch) { cfg.branch = j.default_branch; saveCfg(); }
   return j;
+}
+
+/* ---------- Jev link suggestions ----------
+   Jev doesn't accept calls from web pages, so a GitHub Action in the data repo
+   calls it (the key is a repo secret) and writes suggestions.json, which we read here. */
+const SUGG_PATH = 'suggestions.json';
+// waiting until a run newer than our request reports back (30s of slack for clock differences)
+const jevWaiting = () => cfg.jev && cfg.lastDispatch && Date.now() - cfg.lastDispatch < 4 * 60 * 1000 &&
+  !(sugg.status && Date.parse(sugg.status.at) > cfg.lastDispatch - 30000);
+
+async function fetchSuggestions() {
+  const r = await fetch(`${repoUrl()}/contents/${SUGG_PATH}`, { headers: ghHeaders(), cache: 'no-store' });
+  if (r.status === 404) return;
+  if (!r.ok) return;
+  const j = await r.json();
+  try {
+    const data = JSON.parse(j.content ? b64dec(j.content) : '{}');
+    const before = stable(sugg);
+    sugg = { suggestions: data.suggestions || {}, status: data.status || null };
+    writeLS(LS_SUGG, sugg);
+    if (stable(sugg) !== before) requestRender();
+  } catch {}
+}
+
+async function dispatchSuggest(goalId) {
+  const sentAt = Date.now();
+  const r = await fetch(`${repoUrl()}/actions/workflows/suggest-links.yml/dispatches`, {
+    method: 'POST', headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ref: cfg.branch || 'main', inputs: { goal_id: goalId || '' } }),
+  });
+  if (r.status === 204 || r.ok) { cfg.lastDispatch = sentAt; cfg.jevError = ''; saveCfg(); pollSuggestions(); return true; }
+  const msg = await ghMessage(r);
+  cfg.jevError = r.status === 403 || r.status === 404
+    ? 'GitHub wouldn\'t start the suggestion run. Give your token "Actions: Read and write" on the data repo, and check the repo has the suggest-links workflow.'
+    : `GitHub returned ${r.status} when starting the suggestion run: ${msg}`;
+  saveCfg(); requestRender();
+  return false;
+}
+
+let pollTimer = null;
+function pollSuggestions() {
+  clearTimeout(pollTimer);
+  if (!jevWaiting()) { requestRender(); return; }
+  requestRender();
+  pollTimer = setTimeout(async () => { try { await fetchSuggestions(); } catch {} pollSuggestions(); }, 15000);
+}
+
+function requestSuggestions(goalId) {
+  if (!cfg.jev || !syncReady()) return;
+  if (!cfg.pendingSuggest.includes(goalId)) cfg.pendingSuggest.push(goalId);
+  saveCfg();
+}
+
+const pairKey = (a, b) => [a, b].sort().join('|');
+const linkedEither = (a, b) => parentsOf(a).includes(b) || parentsOf(b).includes(a) || relatedOf(a).includes(b);
+function pendingSuggestions(goalId = null) {
+  return Object.values(sugg.suggestions || {}).filter(s => {
+    const a = goalById(s.from), b = goalById(s.to);
+    if (!a || !b || a.archived || b.archived) return false;
+    if (goalId && s.from !== goalId && s.to !== goalId) return false;
+    const d = state.dismissed[s.pair || pairKey(s.from, s.to)];
+    if (d && !d.deleted) return false;
+    return !linkedEither(s.from, s.to);
+  }).sort((x, y) => (y.p || 0) - (x.p || 0));
+}
+function suggestionRow(s) {
+  const a = goalById(s.from), b = goalById(s.to);
+  const verb = s.type === 'contributes' ? 'is part of' : 'is related to';
+  return `<li><span class="sg-text"><span class="sg-goal" style="--g:var(--g${gc(a)})"><i></i>${esc(a.name)}</span> <span class="muted">${verb}</span> <span class="sg-goal" style="--g:var(--g${gc(b)})"><i></i>${esc(b.name)}</span>
+    <span class="sg-p">${Math.round((s.p || 0) * 100)}% sure</span></span>
+    <span class="row"><button class="btn" data-act="sugg-add" data-pair="${esc(s.pair || pairKey(s.from, s.to))}">Add</button><button class="btn quiet" data-act="sugg-dismiss" data-pair="${esc(s.pair || pairKey(s.from, s.to))}">Dismiss</button></span></li>`;
+}
+function suggestionsPanel() {
+  if (!cfg.jev) return '';
+  const list = pendingSuggestions();
+  const waiting = jevWaiting();
+  const failed = cfg.jevError || (sugg.status && !sugg.status.ok ? sugg.status.message : '');
+  if (!list.length && !waiting && !failed) return '';
+  let h = `<section class="sugg"><h2 class="sub">Suggested links</h2>`;
+  if (waiting) h += `<p class="small ink2">Asking Jev how your new goal fits with the others. This usually takes under a minute.</p>`;
+  if (failed) h += `<p class="status-line err">${esc(failed)}</p>`;
+  if (list.length) h += `<ul class="sg-list">${list.map(suggestionRow).join('')}</ul>`;
+  if (linkError && linkError.goalId === 'sugg') h += `<p class="status-line err" role="alert">${esc(linkError.msg)}</p>`;
+  return h + '</section>';
 }
 
 async function ghGet() {
@@ -702,6 +834,17 @@ async function syncNow() {
     if (!done) throw new SyncError(`Couldn't save to GitHub after several tries (${lastMsg || 'conflict'}). Try Sync now in a minute.`);
     cfg.lastSync = Date.now(); saveCfg();
     setSync('ok');
+    // suggestion runs start only after the new goals are saved on GitHub
+    if (cfg.jev) {
+      try {
+        if (cfg.pendingSuggest.length) {
+          const ids = cfg.pendingSuggest.slice();
+          cfg.pendingSuggest = []; saveCfg();
+          await dispatchSuggest(ids.length === 1 ? ids[0] : '');
+        }
+        await fetchSuggestions();
+      } catch (e) { cfg.jevError = `Couldn't reach GitHub for suggestions (${e.message}).`; saveCfg(); }
+    }
   } catch (e) {
     if (e instanceof SyncError) setSync('error', e.message);
     else if (!navigator.onLine) setSync('offline');
@@ -857,7 +1000,7 @@ function cumChart(g, width) {
   const yMax = Math.ceil(maxV / step) * step;
   const X = i => L + (n === 1 ? 0 : i / (n - 1)) * (W - L - R);
   const Y = v => T + (1 - v / yMax) * (H - T - B);
-  let s = `<svg class="chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="--g:var(--g${g.color})" role="img" aria-label="Running total for ${esc(g.name)}">`;
+  let s = `<svg class="chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="--g:var(--g${gc(g)})" role="img" aria-label="Running total for ${esc(g.name)}">`;
   s += '<g class="ticks">';
   for (let v = 0; v <= yMax + 1e-9; v += step) {
     const y = Y(v);
@@ -883,7 +1026,7 @@ function cumChart(g, width) {
 
 /* ---------- views ---------- */
 function viewToday() {
-  const goals = activeGoals();
+  const goals = goalsForDay(dayView);
   const isToday = dayView === today();
   let h = `<div class="dayhead">
     <h1>${isToday ? 'Today' : esc(parse(dayView).toLocaleDateString(undefined, { weekday: 'long' }))}<small>${esc(fmtLong(dayView))}${isToday ? '' : ` · <a href="#" data-act="day-today">Back to today</a>`}</small></h1>
@@ -901,6 +1044,8 @@ function viewToday() {
   const broadGoals = goals.filter(g => g.unit === 'none').sort((a, b) => parentsOf(a.id).length - parentsOf(b.id).length || byName(a, b));
 
   // banners
+  const nSugg = cfg.jev && isToday ? pendingSuggestions().length : 0;
+  if (nSugg) h += `<div class="note"><p>Jev suggested ${nSugg} ${nSugg === 1 ? 'link' : 'links'} between your goals.</p><div class="row"><a class="btn" href="#goals">Review ${nSugg === 1 ? 'it' : 'them'}</a></div></div>`;
   const last = lastActiveDate();
   const gap = last ? diffDays(last, today()) : 0;
   if (isToday && last && gap >= 7 && !IDX.byDate.has(today())) {
@@ -931,7 +1076,7 @@ function viewToday() {
         const tip = fmtD(d, { weekday: 'short', month: 'short', day: 'numeric' }) + '\n' + (ls.length ? ls.map(l => goalById(l.goalId).name).join('\n') : 'Nothing linked was logged');
         return `<b class="${ls.length ? 'on' : ''}" data-tip="${esc(tip)}"></b>`;
       }).join('');
-      h += `<li style="--g:var(--g${g.color})"><a class="nm" href="#goals" data-act="open-goal" data-id="${esc(g.id)}"><i></i><span>${esc(g.name)}</span></a>
+      h += `<li style="--g:var(--g${gc(g)})"><a class="nm" href="#goals" data-act="open-goal" data-id="${esc(g.id)}"><i></i><span>${esc(g.name)}</span></a>
         ${kids ? `<span class="days">${cells}</span><span class="tot">${(n => `${n} ${n === 1 ? 'day' : 'days'}`)(activeDays(30, g.id))}</span>` : `<span class="small muted" style="grid-column:2 / span 2">Nothing linked yet</span>`}</li>`;
     }
     h += '</ul>';
@@ -952,7 +1097,7 @@ function viewToday() {
     const amt = l ? l.amount || 0 : 0;
     const note = l ? l.note || '' : '';
     const k = g.id;
-    h += `<li class="goal-row" style="--g:var(--g${g.color})">
+    h += `<li class="goal-row" style="--g:var(--g${gc(g)})">
       <div class="thread"></div>
       <div><div class="gr-name">${esc(g.name)}</div>${g.bet ? `<div class="gr-bet">Bet: ${esc(g.bet)}</div>` : `<div class="gr-bet muted">No current bet. <a href="#goals" data-act="open-goal" data-setbet="1" data-id="${esc(g.id)}">Set one</a></div>`}</div>
       <div class="gr-val ${amt ? '' : 'zero'}">${esc(fmtAmt(g, amt))}</div>
@@ -968,6 +1113,11 @@ function viewToday() {
     } else if (g.unit === 'count') {
       h += `<button class="chip" data-act="add" data-v="-1" data-id="${esc(g.id)}" aria-label="One less" ${amt ? '' : 'disabled'} data-key="dec-${esc(k)}">−</button>
         <button class="chip" data-act="add" data-v="1" data-id="${esc(g.id)}" aria-label="One more" data-key="inc-${esc(k)}">+1</button>`;
+    } else if (g.unit === 'once') {
+      const doneHere = g.completedOn === dayView;
+      h += doneHere
+        ? `<button class="chip on" data-act="uncomplete" data-id="${esc(g.id)}" aria-pressed="true" data-key="cmp-${esc(k)}">Completed ✓</button><span class="small muted">Tap to undo</span>`
+        : `<button class="chip" data-act="complete" data-id="${esc(g.id)}" data-key="cmp-${esc(k)}">Mark complete</button>`;
     } else {
       h += `<button class="chip ${amt ? 'on' : ''}" data-act="toggle" data-id="${esc(g.id)}" aria-pressed="${amt ? 'true' : 'false'}" data-key="tog-${esc(k)}">${amt ? 'Done ✓' : 'Mark done'}</button>`;
     }
@@ -1006,7 +1156,7 @@ function viewProgress() {
   let h = '<h1>Progress</h1>';
   h += `<div class="filters" role="group" aria-label="Show goal">
     <button class="chip ${gid ? '' : 'on'}" data-act="pfilter" data-id="all" aria-pressed="${!gid}">All goals</button>
-    ${goals.map(g => `<button class="chip ${gid === g.id ? 'on' : ''}" data-act="pfilter" data-id="${esc(g.id)}" aria-pressed="${gid === g.id}" style="--gc:var(--g${g.color})"><span class="dot"></span>${esc(g.name)}</button>`).join('')}
+    ${goals.map(g => `<button class="chip ${gid === g.id ? 'on' : ''}" data-act="pfilter" data-id="${esc(g.id)}" aria-pressed="${gid === g.id}" style="--gc:var(--g${gc(g)})"><span class="dot"></span>${esc(g.name)}</button>`).join('')}
   </div>`;
   const weeks = clamp(Math.floor((w - 34) / 17), 12, 30);
   const a30 = activeDays(30, gid);
@@ -1035,9 +1185,13 @@ function viewProgress() {
     const none = g.unit === 'none';
     const totalTxt = none ? fmtTotal(g, 0, familyActiveTotal(g.id)) : fmtTotal(g, total, logs.length);
     const via = kids.size ? `<p class="small ink2" style="margin:-4px 0 10px">${none ? 'Progress comes from' : 'Last-30 count includes'} ${goalNames([...kids])}.</p>` : '';
-    h += `<section class="goal-sec" style="--g:var(--g${g.color})">
+    h += `<section class="goal-sec" style="--g:var(--g${gc(g)})">
       <header><span class="swatch"></span><h2>${esc(g.name)}${g.archived ? ' <span class="muted small">(archived)</span>' : ''}</h2>
-      <p>${activeDays(30, g.id)} of last 30 days · ${esc(totalTxt)}${none ? '' : ' total'}</p></header>${via}`;
+      <p>${activeDays(30, g.id)} of last 30 days · ${esc(totalTxt)}${none || g.unit === 'once' ? '' : ' total'}</p></header>${via}`;
+    if (g.unit === 'once' && !kids.size) {
+      h += `<p class="ink2">${g.completedOn ? `Completed ${esc(fmtD(g.completedOn, { month: 'long', day: 'numeric', year: 'numeric' }))}.` : 'A one-time goal, not done yet.'}</p></section>`;
+      continue;
+    }
     if (none && !kids.size) {
       h += `<p class="muted">This goal has no daily check-in, so its progress comes from goals linked under it. <a href="#goals" data-act="open-goal" data-id="${esc(g.id)}">Link some goals</a></p></section>`;
       continue;
@@ -1051,7 +1205,8 @@ function viewProgress() {
 
 function viewGoals() {
   const goals = allGoals();
-  const active = goals.filter(g => !g.archived), archived = goals.filter(g => g.archived);
+  const active = goals.filter(isOpen), archived = goals.filter(g => g.archived);
+  const completed = goals.filter(g => !g.archived && g.completedOn).sort((a, b) => b.completedOn.localeCompare(a.completedOn));
   let h = '<div class="row" style="justify-content:space-between;align-items:flex-end"><h1>Goals</h1>';
   if (goalForm !== 'new') h += '<button class="btn primary" data-act="new-goal" style="margin-bottom:18px">Add a goal</button>';
   h += '</div>';
@@ -1059,17 +1214,19 @@ function viewGoals() {
   if (!goals.length && goalForm !== 'new') h += `<div class="empty"><p>No goals yet. Short-term or long-term, each one gets a current bet and a way to track it.</p></div>`;
   // map of how goals nest, shown once anything is linked as part of something else
   const roots = active.filter(g => childrenOf(g.id).some(c => !goalById(c).archived) && !parentsOf(g.id).some(p => !goalById(p).archived)).sort(byName);
+  h += suggestionsPanel();
   if (roots.length) {
     const node = (id, path) => {
       const g = goalById(id);
       const kids = childrenOf(id).map(goalById).filter(x => x && !x.archived).sort(byName);
       const others = path.length ? parentsOf(id).filter(p => p !== path[path.length - 1] && !goalById(p).archived) : [];
-      return `<li style="--g:var(--g${g.color})"><button class="mapbtn" data-act="map-open" data-id="${esc(id)}"><i></i><span>${esc(g.name)}</span></button>${others.length ? `<span class="also">also in ${goalNames(others)}</span>` : ''}
+      return `<li style="--g:var(--g${gc(g)})"><button class="mapbtn ${g.completedOn ? 'done' : ''}" data-act="map-open" data-id="${esc(id)}"><i></i><span>${esc(g.name)}${g.completedOn ? ' ✓' : ''}</span></button>${others.length ? `<span class="also">also in ${goalNames(others)}</span>` : ''}
         ${kids.length && !path.includes(id) ? `<ul>${kids.map(k => node(k.id, [...path, id])).join('')}</ul>` : ''}</li>`;
     };
     h += `<nav class="gmap" aria-label="How your goals connect"><ul>${roots.map(r => node(r.id, [])).join('')}</ul></nav>`;
   }
   if (active.length) h += `<ul class="glist">${active.map(goalItem).join('')}</ul>`;
+  if (completed.length) h += `<h2>Completed</h2><ul class="glist">${completed.map(goalItem).join('')}</ul>`;
   if (archived.length) h += `<h2>Archived</h2><ul class="glist">${archived.map(goalItem).join('')}</ul>`;
   return h;
 }
@@ -1077,19 +1234,20 @@ function goalItem(g) {
   const open = openGoal === g.id;
   const bets = live('bets').filter(b => b.goalId === g.id).sort((a, b) => (b.end || '').localeCompare(a.end || '') || b.updatedAt - a.updatedAt);
   const tried = bets.length, dead = bets.filter(b => b.outcome === 'dead').length;
-  let h = `<li class="gitem" style="--g:var(--g${g.color})">
+  let h = `<li class="gitem" style="--g:var(--g${gc(g)})">
     <button class="ghead" data-act="toggle-goal" data-id="${esc(g.id)}" aria-expanded="${open}" data-key="gh-${esc(g.id)}">
       <span class="thread"></span>
       <span class="gr-name">${esc(g.name)}</span>
-      <span class="tag">${g.horizon === 'long' ? 'Long term' : 'Short term'}</span>
-      <span class="meta">${g.bet ? 'Bet: ' + esc(g.bet) : 'No current bet'}${tried ? ` · ${tried} tried, ${dead} dead ${dead === 1 ? 'end' : 'ends'}` : ''}</span>
+      <span class="tag">${g.completedOn ? `Done ${esc(fmtD(g.completedOn))}` : g.unit === 'once' ? 'One time' : g.horizon === 'long' ? 'Long term' : 'Short term'}</span>
+      <span class="meta">${g.completedOn ? 'Completed' : g.bet ? 'Bet: ' + esc(g.bet) : 'No current bet'}${tried ? ` · ${tried} tried, ${dead} dead ${dead === 1 ? 'end' : 'ends'}` : ''}</span>
       ${parentsOf(g.id).length ? `<span class="meta small muted" style="grid-column:2 / span 2">Part of ${goalNames(parentsOf(g.id))}</span>` : ''}
     </button>`;
   if (open) {
     h += '<div class="gbody">';
     if (goalForm === g.id) { h += `<div class="panel">${goalFormHTML(g)}</div></div></li>`; return h; }
     if (g.why) h += `<p class="ink2"><b>Why:</b> ${esc(g.why)}</p>`;
-    h += `<p class="small muted">${g.unit === 'none' ? 'No daily check-in; progress comes from linked goals' : `Tracked as ${g.unit === 'minutes' ? 'minutes' : g.unit === 'check' ? 'done or not done' : esc(g.unitLabel || 'a count')}`}. Started ${esc(fmtD(tsDate(g.createdAt), { month: 'short', day: 'numeric', year: 'numeric' }))}. Active ${activeDays(30, g.id)} of the last 30 days.</p>`;
+    if (g.completedOn) h += `<div class="note"><p><b>Completed ${esc(fmtD(g.completedOn, { month: 'long', day: 'numeric', year: 'numeric' }))}.</b></p><div class="row"><button class="btn" data-act="reopen" data-id="${esc(g.id)}">Reopen</button></div></div>`;
+    h += `<p class="small muted">${g.unit === 'none' ? 'No daily check-in; progress comes from linked goals' : g.unit === 'once' ? 'A one-time goal' : `Tracked as ${g.unit === 'minutes' ? 'minutes' : g.unit === 'check' ? 'done or not done' : esc(g.unitLabel || 'a count')}`}. Started ${esc(fmtD(tsDate(g.createdAt), { month: 'short', day: 'numeric', year: 'numeric' }))}. Active ${activeDays(30, g.id)} of the last 30 days.</p>`;
 
     // current bet
     h += '<h3>Current bet</h3>';
@@ -1102,7 +1260,7 @@ function goalItem(g) {
         <div class="row"><button class="btn primary" type="submit">${o === 'edit' ? 'Save bet' : o === 'dead' ? 'Log dead end' : 'Log it'}</button><button class="btn quiet" type="button" data-act="bet-cancel">Cancel</button></div></form>`;
     } else if (g.bet) {
       h += `<div class="bet-now"><div class="bet-text">${esc(g.bet)}</div><p class="small muted" style="margin:4px 0 12px">Since ${esc(fmtD(g.betSince || tsDate(g.updatedAt)))} (${diffDays(g.betSince || tsDate(g.updatedAt), today())} days)</p>
-        <div class="row"><button class="btn" data-act="bet" data-o="worked" data-id="${esc(g.id)}">It worked</button><button class="btn" data-act="bet" data-o="dead" data-id="${esc(g.id)}">Dead end</button><button class="btn quiet" data-act="bet" data-o="edit" data-id="${esc(g.id)}">Edit</button></div></div>`;
+        <div class="row"><button class="btn" data-act="bet" data-o="worked" data-id="${esc(g.id)}">It worked</button><button class="btn" data-act="bet" data-o="dead" data-id="${esc(g.id)}">Dead end</button><button class="btn quiet" data-act="bet" data-o="edit" data-id="${esc(g.id)}">Edit</button><button class="btn quiet danger" data-act="bet-clear" data-id="${esc(g.id)}">Remove</button></div></div>`;
     } else {
       h += `<p class="muted">Nothing set. A bet is the one concrete thing you're trying next toward this goal.</p><button class="btn" data-act="bet" data-o="edit" data-id="${esc(g.id)}">Set a bet</button>`;
     }
@@ -1111,7 +1269,7 @@ function goalItem(g) {
     if (bets.length) {
       h += `<h3>Past bets</h3><ul class="history">`;
       for (const b of bets) {
-        h += `<li class="${b.outcome === 'dead' ? 'dead' : 'worked'}"><div class="when">${b.outcome === 'dead' ? 'Dead end' : 'Worked'} · ${esc(fmtD(b.start))} to ${esc(fmtD(b.end))}</div>
+        h += `<li class="${b.outcome === 'dead' ? 'dead' : 'worked'}"><div class="when">${b.outcome === 'dead' ? 'Dead end' : 'Worked'} · ${esc(fmtD(b.start))} to ${esc(fmtD(b.end))} · <a href="#" data-act="bet-del" data-bet="${esc(b.id)}">Remove</a></div>
           <div class="what">${esc(b.text)}</div>${b.why ? `<div class="lesson">${esc(b.why)}</div>` : ''}${b.lesson ? `<div class="lesson"><i>Next time:</i> ${esc(b.lesson)}</div>` : ''}</li>`;
       }
       h += '</ul>';
@@ -1131,7 +1289,7 @@ function goalItem(g) {
     h += '<h3>Links</h3>';
     const chips = (ids, kind) => ids.map(goalById).filter(Boolean).sort(byName).map(o => {
       const lid = kind === 'parent' ? linkId('contributes', g.id, o.id) : kind === 'child' ? linkId('contributes', o.id, g.id) : linkId('related', g.id, o.id);
-      return `<span class="lchip" style="--g:var(--g${o.color})"><button data-act="map-open" data-id="${esc(o.id)}"><i></i>${esc(o.name)}</button><button class="x" data-act="unlink" data-link="${esc(lid)}" aria-label="Remove link to ${esc(o.name)}">×</button></span>`;
+      return `<span class="lchip" style="--g:var(--g${gc(o)})"><button data-act="map-open" data-id="${esc(o.id)}"><i></i>${esc(o.name)}</button><button class="x" data-act="unlink" data-link="${esc(lid)}" aria-label="Remove link to ${esc(o.name)}">×</button></span>`;
     }).join('');
     const ps = parentsOf(g.id), cs = childrenOf(g.id), rs = relatedOf(g.id);
     if (ps.length || cs.length || rs.length) {
@@ -1142,6 +1300,9 @@ function goalItem(g) {
       h += '</dl>';
     } else h += `<p class="muted small">Link this goal to broader goals it serves, narrower goals that feed it, or goals that are just related.</p>`;
     const others = allGoals().filter(o => o.id !== g.id && !o.archived).sort(byName);
+    const mine = cfg.jev ? pendingSuggestions(g.id) : [];
+    if (mine.length) h += `<p class="small ink2" style="margin:0 0 6px">Suggested by Jev:</p><ul class="sg-list">${mine.map(suggestionRow).join('')}</ul>`;
+    if (cfg.jev && syncReady()) h += `<p class="small" style="margin:0 0 10px"><a href="#" data-act="sugg-ask" data-id="${esc(g.id)}">Ask Jev to check this goal again</a></p>`;
     if (others.length) {
       h += `<form class="row linkform" data-form="link" data-id="${esc(g.id)}">
         <label class="sr" for="lk-${esc(g.id)}">Link type</label><select id="lk-${esc(g.id)}" name="kind"><option value="parent">Part of</option><option value="child">Made up of</option><option value="related">Related to</option></select>
@@ -1150,6 +1311,11 @@ function goalItem(g) {
       if (linkError && linkError.goalId === g.id) h += `<p class="status-line err" role="alert">${esc(linkError.msg)}</p>`;
     }
 
+    if (!g.completedOn && !g.archived) {
+      h += `<h3>Finished?</h3><form class="row" data-form="complete" data-id="${esc(g.id)}">
+        <label class="sr" for="cd-${esc(g.id)}">Completion date</label><input type="date" id="cd-${esc(g.id)}" name="date" value="${today()}" max="${today()}" style="width:auto">
+        <button class="btn" type="submit">Mark complete</button></form>`;
+    }
     h += `<div class="row" style="margin-top:26px"><button class="btn" data-act="edit-goal" data-id="${esc(g.id)}">Edit goal</button>
       <button class="btn quiet" data-act="archive-goal" data-id="${esc(g.id)}">${g.archived ? 'Unarchive' : 'Archive'}</button>
       <button class="btn quiet danger" data-act="delete-goal" data-id="${esc(g.id)}">Delete</button></div>`;
@@ -1164,11 +1330,25 @@ function parentPicker(g) {
   if (!opts.length) return '';
   const current = new Set(g ? parentsOf(g.id) : []);
   return `<fieldset class="f picker"><legend>Part of</legend><small>Broader goals this one feeds into. Pick as many as fit.</small>
-    <div class="pick">${opts.map(o => `<label style="--g:var(--g${o.color})"><input type="checkbox" name="parents" value="${esc(o.id)}" ${current.has(o.id) ? 'checked' : ''}><span><i></i>${esc(o.name)}</span></label>`).join('')}</div></fieldset>`;
+    <div class="pick">${opts.map(o => `<label style="--g:var(--g${gc(o)})"><input type="checkbox" name="parents" value="${esc(o.id)}" ${current.has(o.id) ? 'checked' : ''}><span><i></i>${esc(o.name)}</span></label>`).join('')}</div></fieldset>`;
+}
+function unitHint(u) {
+  return {
+    minutes: 'Log time spent each day.',
+    count: 'Log how many each day.',
+    check: 'Mark it done on the days you do it.',
+    once: 'Something you do once. Mark it complete when it\'s done.',
+    none: 'For broad goals. Its progress comes from the goals you link under it.',
+  }[u] || '';
+}
+// a goal's own color: the first one no other top-level goal is using
+function nextFreeColor(exceptId) {
+  const used = new Set(live('goals').filter(x => !x.archived && x.id !== exceptId && !colorSource(x)).map(x => x.color));
+  return [1, 2, 3, 4, 5, 6, 7, 8].find(c => !used.has(c)) || 1 + (live('goals').length % 8);
 }
 function goalFormHTML(g) {
-  const used = new Set(live('goals').filter(x => !x.archived && (!g || x.id !== g.id)).map(x => x.color));
-  let color = g ? g.color : ([1, 2, 3, 4, 5, 6, 7, 8].find(c => !used.has(c)) || 1);
+  const auto = !g || isAutoColor(g);
+  const color = g ? g.color : nextFreeColor(null);
   const unit = g ? g.unit : 'minutes';
   const hz = g ? g.horizon : 'long';
   return `<form data-form="goal" data-id="${g ? esc(g.id) : ''}">
@@ -1179,19 +1359,23 @@ function goalFormHTML(g) {
         <label><input type="radio" name="horizon" value="long" ${hz === 'long' ? 'checked' : ''}><span>Long term</span></label>
       </div></div>
     <label class="f"><span>Why it matters</span><input type="text" name="why" maxlength="160" value="${g ? esc(g.why || '') : ''}" placeholder="Optional, one line"></label>
-    <div class="f" style="margin-bottom:14px"><span style="display:block;font-weight:700;font-size:15px;margin-bottom:5px">Daily check-in</span>
-      <div class="seg" role="radiogroup" aria-label="Daily check-in">
+    <div class="f" style="margin-bottom:14px"><span style="display:block;font-weight:700;font-size:15px;margin-bottom:5px">How you track it</span>
+      <div class="seg" role="radiogroup" aria-label="How you track it">
         <label><input type="radio" name="unit" value="minutes" ${unit === 'minutes' ? 'checked' : ''} data-act-change="unit"><span>Minutes</span></label>
         <label><input type="radio" name="unit" value="count" ${unit === 'count' ? 'checked' : ''} data-act-change="unit"><span>A count</span></label>
         <label><input type="radio" name="unit" value="check" ${unit === 'check' ? 'checked' : ''} data-act-change="unit"><span>Done or not</span></label>
+        <label><input type="radio" name="unit" value="once" ${unit === 'once' ? 'checked' : ''} data-act-change="unit"><span>One time</span></label>
         <label><input type="radio" name="unit" value="none" ${unit === 'none' ? 'checked' : ''} data-act-change="unit"><span>No check-in</span></label>
       </div>
-      <small class="muted" data-unitnone ${unit === 'none' ? '' : 'hidden'} style="display:block;font-size:14px;margin-top:6px">For broad goals. Its progress comes from the goals you link under it.</small></div>
+      <small class="muted" data-unithint style="display:block;font-size:14px;margin-top:6px">${esc(unitHint(unit))}</small></div>
     <label class="f" data-unitlabel ${unit === 'count' ? '' : 'hidden'}><span>What are you counting?</span><input type="text" name="unitLabel" maxlength="24" value="${g ? esc(g.unitLabel || '') : ''}" placeholder="applications, pages, workouts"></label>
     ${g ? '' : `<label class="f"><span>Current bet</span><input type="text" name="bet" maxlength="140" placeholder="The single next thing you're trying"><small>Optional. You can set it later.</small></label>`}
     ${parentPicker(g)}
     <div class="f" style="margin-bottom:18px"><span style="display:block;font-weight:700;font-size:15px;margin-bottom:6px">Color</span>
-      <div class="swatches" role="radiogroup" aria-label="Color">${[1, 2, 3, 4, 5, 6, 7, 8].map(c => `<label style="--g:var(--g${c})"><input type="radio" name="color" value="${c}" ${c === color ? 'checked' : ''} aria-label="Color ${c}"><span></span></label>`).join('')}</div></div>
+      <div class="swatches" role="radiogroup" aria-label="Color">
+        <label class="auto"><input type="radio" name="color" value="auto" ${auto ? 'checked' : ''}><span>Automatic</span></label>
+        ${[1, 2, 3, 4, 5, 6, 7, 8].map(c => `<label style="--g:var(--g${c})"><input type="radio" name="color" value="${c}" ${!auto && c === color ? 'checked' : ''} aria-label="Color ${c}"><span></span></label>`).join('')}</div>
+      <small class="muted" style="display:block;font-size:14px;margin-top:6px">Automatic matches the goal this one is part of, so related goals share a color.</small></div>
     <div class="row"><button class="btn primary" type="submit">${g ? 'Save goal' : 'Add goal'}</button><button class="btn quiet" type="button" data-act="goal-cancel">Cancel</button></div>
   </form>`;
 }
@@ -1227,7 +1411,7 @@ function viewReview() {
         if (a > 0) { total += a; n++; }
         days += `<b class="${a > 0 ? 'on' : ''}" title="${esc(fmtD(d, { weekday: 'short' }) + (tipTxt ? ': ' + tipTxt : ''))}"></b>`;
       }
-      h += `<li style="--g:var(--g${g.color})"><span class="nm"><i></i><span>${esc(g.name)}</span></span><span class="days">${days}</span><span class="tot">${n ? esc(fmtTotal(g, total, n)) : '—'}</span></li>`;
+      h += `<li style="--g:var(--g${gc(g)})"><span class="nm"><i></i><span>${esc(g.name)}</span></span><span class="days">${days}</span><span class="tot">${n ? esc(fmtTotal(g, total, n)) : '—'}</span></li>`;
     }
     h += '</ul>';
   }
@@ -1295,6 +1479,19 @@ function renderSettings() {
     <label class="f"><span>Device name</span><input type="text" value="${esc(cfg.device)}" data-act-change="device" maxlength="30"><small>Shows up in the data repo's commit history.</small></label>
     <label class="f"><span>Theme</span><select data-act-change="theme"><option value="auto" ${theme === 'auto' ? 'selected' : ''}>Match system</option><option value="light" ${theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>
 
+    <h3>Link suggestions from Jev</h3>
+    <p class="small ink2">When you add a goal, Jev compares it with your other goals and suggests links for you to add or dismiss. It runs as a GitHub Action in your data repo, which keeps your Jev key out of the browser.</p>
+    <details ${cfg.jev ? '' : 'open'} style="margin-bottom:12px"><summary class="small" style="cursor:pointer;font-weight:700;margin-bottom:8px">One-time setup</summary>
+      <ol class="steps">
+        <li>In your data repo on GitHub, open Settings → Secrets and variables → Actions → New repository secret. Name it <b>JEV_API_KEY</b> and paste your Jev key.</li>
+        <li>Edit your GitHub token (Settings → Developer settings → Fine-grained tokens) and set <b>Actions</b> to "Read and write", next to Contents.</li>
+        <li>Turn on suggestions below. Do this on each device you add goals from.</li>
+      </ol></details>
+    <label class="row" style="gap:10px;margin-bottom:10px"><input type="checkbox" data-act-change="jev" ${cfg.jev ? 'checked' : ''} style="width:20px;height:20px"><span>Suggest links when I add a goal</span></label>
+    ${cfg.jev && syncReady() ? `<div class="row"><button class="btn" type="button" data-act="sugg-all">Check all my goals now</button></div>` : ''}
+    ${cfg.jev && !syncReady() ? '<p class="small muted">Connect GitHub above first; suggestions run there.</p>' : ''}
+    <p class="status-line ${cfg.jevError || (sugg.status && !sugg.status.ok) ? 'err' : ''}">${esc(cfg.jevError || (jevWaiting() ? 'Asking Jev…' : sugg.status ? `Last run: ${sugg.status.message}` : ''))}</p>
+
     <h3>Builds</h3>
     <label class="f"><span>Active days needed to unlock a build</span><input type="number" min="0" max="30" value="${state.settings.ideaThreshold || 20}" data-act-change="threshold" style="width:120px"><small>Out of the last 30 days.</small></label>
 
@@ -1315,6 +1512,18 @@ function setAmount(gid, date, amount) {
   if (!amount && !note) { if (prev) remove('logs', k); return; }
   if (amount && wasEmptyDay) freshCell = date;
   put('logs', { id: k, date, goalId: gid, amount, note });
+}
+// finishing a one-time goal logs that day, so broader goals it feeds get credit for it
+function completeGoal(g, date) {
+  if (g.unit === 'once') {
+    if (g.completedOn && g.completedOn !== date) setAmount(g.id, g.completedOn, 0);
+    setAmount(g.id, date, 1);
+  }
+  put('goals', { ...g, completedOn: date });
+}
+function reopenGoal(g) {
+  if (g.unit === 'once' && g.completedOn) setAmount(g.id, g.completedOn, 0);
+  put('goals', { ...g, completedOn: null });
 }
 function setNote(gid, date, note) {
   const k = logKey(date, gid);
@@ -1338,6 +1547,9 @@ document.addEventListener('click', e => {
     case 'day-today': e.preventDefault(); dayView = today(); render(); break;
     case 'add': if (g) { const l = getLog(dayView, g.id); setAmount(g.id, dayView, (l ? l.amount || 0 : 0) + Number(t.dataset.v)); } break;
     case 'toggle': if (g) { const l = getLog(dayView, g.id); setAmount(g.id, dayView, l && l.amount ? 0 : 1); } break;
+    case 'complete': if (g) completeGoal(g, dayView); break;
+    case 'uncomplete': if (g) reopenGoal(g); break;
+    case 'reopen': if (g) reopenGoal(g); break;
     case 'amt-edit': editAmt = id; render(); break;
     case 'amt-done': { const inp = $(`input[data-act-input="amt"][data-id="${CSS.escape(id)}"]`); editAmt = null; if (inp) setAmount(id, dayView, Number(inp.value) || 0); render(); break; }
     case 'note': if (openNotes.has(id)) openNotes.delete(id); else openNotes.add(id); render(); break;
@@ -1353,6 +1565,16 @@ document.addEventListener('click', e => {
       openGoal = id; goalForm = null; betForm = null; linkError = null; render();
       { const el = $(`[data-key="gh-${CSS.escape(id)}"]`); if (el) { el.scrollIntoView({ block: 'start' }); el.focus({ preventScroll: true }); } }
       break;
+    case 'sugg-add': {
+      const s = (sugg.suggestions || {})[t.dataset.pair]; if (!s) break;
+      const err = addLink(s.type, s.from, s.to, { score: s.p, source: 'jev' });
+      linkError = err ? { goalId: 'sugg', msg: err } : null;
+      if (err) render();
+      break;
+    }
+    case 'sugg-dismiss': put('dismissed', { id: t.dataset.pair }); break;
+    case 'sugg-ask': e.preventDefault(); dispatchSuggest(id); break;
+    case 'sugg-all': dispatchSuggest('all'); renderSettings(); break;
     case 'unlink': { const l = state.links[t.dataset.link]; linkError = null; if (l && !l.deleted) remove('links', l.id); break; }
     case 'toggle-goal': openGoal = openGoal === id ? null : id; goalForm = null; betForm = null; linkError = null; render(); break;
     case 'edit-goal': goalForm = id; render(); break;
@@ -1366,6 +1588,8 @@ document.addEventListener('click', e => {
       break;
     case 'bet': betForm = { goalId: id, outcome: t.dataset.o }; render(); { const f = $('form[data-form="bet"] textarea, form[data-form="bet"] input'); if (f) f.focus(); } break;
     case 'bet-cancel': betForm = null; render(); break;
+    case 'bet-clear': if (g) put('goals', { ...g, bet: '', betSince: today() }); break;
+    case 'bet-del': e.preventDefault(); if (state.bets[t.dataset.bet]) remove('bets', t.dataset.bet); break;
     case 'del-win': e.preventDefault(); remove('wins', id); break;
     case 'pfilter': ui.progressGoal = id; saveUi(); render(); break;
     case 'wk-prev': reviewWeek = addDays(reviewWeek, -7); render(); break;
@@ -1407,8 +1631,10 @@ document.addEventListener('submit', async e => {
     const existing = f.dataset.id ? goalById(f.dataset.id) : null;
     const rec = existing ? { ...existing } : { id: uid(), createdAt: Date.now(), archived: false };
     rec.name = name; rec.horizon = fd.get('horizon') || 'long'; rec.why = (fd.get('why') || '').trim();
-    rec.unit = fd.get('unit') || 'minutes'; rec.unitLabel = (fd.get('unitLabel') || '').trim(); rec.color = Number(fd.get('color')) || 1;
-    if (!existing) { rec.bet = (fd.get('bet') || '').trim(); rec.betSince = today(); }
+    rec.unit = fd.get('unit') || 'minutes'; rec.unitLabel = (fd.get('unitLabel') || '').trim();
+    if (fd.get('color') === 'auto') { rec.colorMode = 'auto'; rec.color = rec.color || nextFreeColor(rec.id); }
+    else { rec.colorMode = 'manual'; rec.color = Number(fd.get('color')) || 1; }
+    if (!existing) { rec.bet = (fd.get('bet') || '').trim(); rec.betSince = today(); requestSuggestions(rec.id); }
     goalForm = null; openGoal = existing ? existing.id : null;
     put('goals', rec);
     // sync "part of" links with the picker
@@ -1416,6 +1642,10 @@ document.addEventListener('submit', async e => {
     const blocked = new Set([rec.id, ...descendants(rec.id)]);
     for (const p of parentsOf(rec.id)) if (!want.has(p) && !goalById(p).archived) remove('links', linkId('contributes', rec.id, p));
     for (const p of want) if (!blocked.has(p) && !parentsOf(rec.id).includes(p)) addLink('contributes', rec.id, p);
+  } else if (kind === 'complete') {
+    const g = goalById(f.dataset.id); if (!g) return;
+    const d = fd.get('date') || today();
+    completeGoal(g, d > today() ? today() : d);
   } else if (kind === 'link') {
     const gid = f.dataset.id, target = fd.get('target'), k = fd.get('kind');
     if (!goalById(gid) || !goalById(target)) return;
@@ -1484,9 +1714,10 @@ document.addEventListener('change', e => {
   if (a === 'unit') {
     const f = t.closest('form');
     const l = $('[data-unitlabel]', f); if (l) l.hidden = t.value !== 'count';
-    const n = $('[data-unitnone]', f); if (n) n.hidden = t.value !== 'none';
+    const n = $('[data-unithint]', f); if (n) n.textContent = unitHint(t.value);
   }
   if (a === 'device') { cfg.device = t.value.trim() || cfg.device; saveCfg(); }
+  if (a === 'jev') { cfg.jev = t.checked; cfg.jevError = ''; saveCfg(); renderSettings(); if (cfg.jev) scheduleSync(0); requestRender(); }
   if (a === 'theme') { cfg.theme = t.value; saveCfg(); applyTheme(); }
   if (a === 'threshold') setSetting('ideaThreshold', clamp(Number(t.value) || 0, 0, 30));
   if (a === 'import') {
@@ -1591,6 +1822,7 @@ applyTheme();
 route();
 setSync(syncReady() ? 'ok' : 'off');
 scheduleSync(0);
+if (jevWaiting()) pollSuggestions();
 })();
 </script>
 </body>
