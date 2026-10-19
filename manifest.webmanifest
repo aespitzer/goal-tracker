@@ -1,0 +1,15 @@
+{
+  "name": "Stitch",
+  "short_name": "Stitch",
+  "description": "Daily goal check-ins, progress charts and weekly reviews.",
+  "start_url": "./#today",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EEF0F6",
+  "theme_color": "#2B3A8F",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
