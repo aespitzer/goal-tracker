@@ -66,6 +66,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--plane); color: var(--ink);
@@ -298,6 +299,41 @@ svg.cloth { display: block; overflow: visible; }
 .wk .tot { min-width: 64px; text-align: right; color: var(--ink-2); font-size: 15px; font-variant-numeric: tabular-nums; }
 .wk-days-head { display: flex; gap: 4px; }
 .wk-days-head b { width: 16px; text-align: center; font-size: 11px; color: var(--muted); font-weight: 400; }
+.gmap { margin: 0 0 22px; }
+.gmap ul { list-style: none; margin: 0; padding: 0; }
+.gmap ul ul { margin: 2px 0 6px 6px; padding-left: 16px; border-left: 1.5px dashed var(--stitch); }
+.gmap li { margin: 2px 0; }
+.mapbtn { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; padding: 6px 4px; cursor: pointer; font-weight: 700; font-size: 16px; border-radius: 6px; text-align: left; }
+.gmap > ul > li > .mapbtn { font: 700 19px/1.2 var(--display); }
+.mapbtn:hover { background: var(--accent-wash); }
+.mapbtn i, .lchip i, .pick i { width: 10px; height: 10px; border-radius: 3px; background: var(--g); flex: none; display: inline-block; }
+.gmap .also { font-size: 13px; color: var(--muted); margin-left: 4px; }
+.ghead { scroll-margin-top: 80px; }
+dl.links { margin: 0 0 12px; display: grid; grid-template-columns: max-content 1fr; gap: 8px 14px; align-items: baseline; }
+dl.links dt { color: var(--muted); font-size: 14px; }
+dl.links dd { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.lchip { display: inline-flex; align-items: center; border: 1.5px solid var(--base); border-radius: 999px; background: var(--surface); overflow: hidden; }
+.lchip button { border: 0; background: none; cursor: pointer; font-size: 15px; font-weight: 700; padding: 5px 4px 5px 10px; display: inline-flex; align-items: center; gap: 7px; }
+.lchip button.x { padding: 5px 10px 5px 6px; color: var(--muted); font-weight: 400; font-size: 17px; line-height: 1; }
+.lchip button.x:hover { color: var(--ink); }
+.linkform select { width: auto; flex: 1 1 140px; min-width: 0; }
+.linkform select[name=kind] { flex: 0 1 auto; }
+fieldset.picker { border: 0; padding: 0; margin: 0 0 16px; }
+fieldset.picker legend { font-weight: 700; font-size: 15px; padding: 0; margin-bottom: 2px; }
+fieldset.picker small { display: block; color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+.pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick label { position: relative; }
+.pick input { position: absolute; opacity: 0; inset: 0; }
+.pick span { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border: 1.5px solid var(--base); border-radius: 999px; font-weight: 700; font-size: 15px; cursor: pointer; background: var(--surface); }
+.pick input:checked + span { border-color: var(--g); background: color-mix(in srgb, var(--g) 18%, var(--surface)); }
+.pick input:focus-visible + span { outline: 2.5px solid var(--accent); outline-offset: 2px; }
+h2.sub { font-size: 19px; margin: 26px 0 8px; }
+.wk.broad { margin-bottom: 4px; }
+.wk.broad .nm { text-decoration: none; color: var(--ink); }
+.wk.broad .nm:hover span { text-decoration: underline; }
+.wk.broad .days b { width: 20px; height: 20px; }
+.wk.broad .wk-days-head b { width: 20px; }
+.wk .wk-head { border-bottom: 0; padding-bottom: 0; }
 .qa label.f > span { font: 700 19px/1.25 var(--display); }
 .saved-flag { font-size: 14px; color: var(--good-ink); min-height: 20px; }
 details.past { border-bottom: 1px solid var(--hair); }
@@ -403,8 +439,8 @@ function stable(v) {
 const LS_STATE = 'stitch.state.v1';
 const LS_CFG = 'stitch.cfg.v1';
 const LS_UI = 'stitch.ui.v1';
-const COLS = ['goals', 'logs', 'bets', 'wins', 'reviews', 'ideas'];
-const emptyState = () => ({ version: 1, goals: {}, logs: {}, bets: {}, wins: {}, reviews: {}, ideas: {}, settings: { ideaThreshold: 20, updatedAt: 0 } });
+const COLS = ['goals', 'logs', 'bets', 'wins', 'reviews', 'ideas', 'links'];
+const emptyState = () => ({ version: 1, goals: {}, logs: {}, bets: {}, wins: {}, reviews: {}, ideas: {}, links: {}, settings: { ideaThreshold: 20, updatedAt: 0 } });
 
 function normalize(s) {
   const e = emptyState();
@@ -426,7 +462,7 @@ const live = col => Object.values(state[col]).filter(r => r && !r.deleted);
 function put(col, rec) { rec.updatedAt = Date.now(); state[col][rec.id] = rec; touched(); }
 function remove(col, id) { state[col][id] = { id, deleted: true, updatedAt: Date.now() }; touched(); }
 function setSetting(k, v) { state.settings = { ...state.settings, [k]: v, updatedAt: Date.now() }; touched(); }
-function touched() { cfg.lastChange = Date.now(); saveCfg(); saveLocal(); scheduleSync(2500); requestRender(); }
+function touched() { if (typeof buildGraph === 'function') GRAPH = buildGraph(); cfg.lastChange = Date.now(); saveCfg(); saveLocal(); scheduleSync(2500); requestRender(); }
 
 function pick(a, b) {
   if (!a) return b; if (!b) return a;
@@ -464,15 +500,64 @@ function buildIndex() {
 }
 let IDX = buildIndex();
 
+/* ---------- goal links ----------
+   contributes: from (specific) -> to (broader). A goal can have many parents.
+   related: symmetric, stored once under a sorted id. */
+const linkId = (type, a, b) => type === 'contributes' ? `c:${a}>${b}` : `r:${[a, b].sort().join('~')}`;
+function buildGraph() {
+  const parents = new Map(), children = new Map(), related = new Map();
+  const push = (m, k, v) => { if (!m.has(k)) m.set(k, []); if (!m.get(k).includes(v)) m.get(k).push(v); };
+  for (const l of live('links')) {
+    if (!goalById(l.from) || !goalById(l.to)) continue;
+    if (l.type === 'contributes') { push(parents, l.from, l.to); push(children, l.to, l.from); }
+    else { push(related, l.from, l.to); push(related, l.to, l.from); }
+  }
+  return { parents, children, related };
+}
+let GRAPH = buildGraph();
+const parentsOf = id => GRAPH.parents.get(id) || [];
+const childrenOf = id => GRAPH.children.get(id) || [];
+const relatedOf = id => GRAPH.related.get(id) || [];
+function walk(id, next) {
+  const seen = new Set(), stack = [...next(id)];
+  while (stack.length) { const x = stack.pop(); if (seen.has(x) || x === id) continue; seen.add(x); stack.push(...next(x)); }
+  return seen;
+}
+const descendants = id => walk(id, childrenOf);
+const ancestors = id => walk(id, parentsOf);
+const family = id => new Set([id, ...descendants(id)]);
+const isRollup = g => g.unit === 'none' || childrenOf(g.id).length > 0;
+const byName = (a, b) => a.name.localeCompare(b.name);
+const goalNames = ids => ids.map(goalById).filter(Boolean).sort(byName).map(g => esc(g.name)).join(', ');
+
+function addLink(type, from, to) {
+  if (from === to) return 'A goal can\'t link to itself.';
+  if (type === 'contributes') {
+    if (descendants(from).has(to)) return `${goalById(to).name} already feeds into ${goalById(from).name}, so linking it the other way would make a loop.`;
+    const rel = state.links[linkId('related', from, to)];
+    if (rel && !rel.deleted) state.links[rel.id] = { id: rel.id, deleted: true, updatedAt: Date.now() };
+  } else {
+    const c1 = state.links[linkId('contributes', from, to)], c2 = state.links[linkId('contributes', to, from)];
+    if ((c1 && !c1.deleted) || (c2 && !c2.deleted)) return 'These goals are already linked as part of each other.';
+  }
+  const id = linkId(type, from, to);
+  const [a, b] = type === 'related' ? [from, to].sort() : [from, to];
+  put('links', { id, type, from: a, to: b });
+  return null;
+}
+
+// a day counts for a goal when the goal or anything feeding into it was logged
 function activeDays(n, gid = null, end = today()) {
+  const ids = gid ? family(gid) : null;
   let c = 0;
   for (let i = 0; i < n; i++) {
     const d = addDays(end, -i);
     const ls = IDX.byDate.get(d);
-    if (ls && (!gid || ls.some(l => l.goalId === gid))) c++;
+    if (ls && (!ids || ls.some(l => ids.has(l.goalId)))) c++;
   }
   return c;
 }
+function familyStart(gid) { return [...family(gid)].map(goalById).filter(Boolean).map(goalStart).sort()[0] || today(); }
 function lastActiveDate() {
   let best = null;
   for (const d of IDX.byDate.keys()) if (!best || d > best) best = d;
@@ -490,6 +575,7 @@ function unitWord(g, n) {
   return w;
 }
 function fmtAmt(g, a) {
+  if (g.unit === 'none') return a ? 'Active' : 'No activity';
   if (!a) return g.unit === 'check' ? 'Not yet' : g.unit === 'minutes' ? '0 min' : `0 ${unitWord(g, 0)}`;
   if (g.unit === 'minutes') return a >= 120 ? `${+(a / 60).toFixed(1)} h` : `${a} min`;
   if (g.unit === 'check') return 'Done';
@@ -498,7 +584,13 @@ function fmtAmt(g, a) {
 function fmtTotal(g, total, days) {
   if (g.unit === 'minutes') return total >= 60 ? `${+(total / 60).toFixed(1)} hours` : `${total} min`;
   if (g.unit === 'check') return `${days} ${days === 1 ? 'day' : 'days'}`;
+  if (g.unit === 'none') return `${days} active ${days === 1 ? 'day' : 'days'}`;
   return `${total} ${unitWord(g, total)}`;
+}
+function familyActiveTotal(gid) {
+  const ids = family(gid); let n = 0;
+  for (const ls of IDX.byDate.values()) if (ls.some(l => ids.has(l.goalId))) n++;
+  return n;
 }
 
 /* ================= sync ================= */
@@ -632,6 +724,7 @@ let betForm = null;        // {goalId, outcome}
 let editAmt = null;        // goal id whose amount is being typed
 let openNotes = new Set();
 let freshCell = null;
+let linkError = null;      // {goalId, msg} from the last failed link attempt
 let pendingRender = false;
 const charts = new Map();
 
@@ -651,6 +744,7 @@ function chartWidth() { return Math.max(260, Math.min(648, $('#app').clientWidth
 
 function render() {
   IDX = buildIndex();
+  GRAPH = buildGraph();
   if (dayView > today()) dayView = today();
   const focusKey = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.key : null;
   charts.clear();
@@ -669,7 +763,9 @@ function render() {
 function clothSVG({ weeks, width, gid = null, cellMax = 22 }) {
   const end = today();
   // days before tracking began aren't missed days, so the cloth starts where you started
-  const gs = gid ? [goalById(gid)].filter(Boolean) : live('goals');
+  const fam = gid ? family(gid) : null;
+  const famMode = !!gid && isRollup(goalById(gid));
+  const gs = gid ? [...fam].map(goalById).filter(Boolean) : live('goals');
   const firstDay = gs.length ? gs.map(goalStart).sort()[0] : end;
   const weeksSince = diffDays(weekStart(firstDay), weekStart(end)) / 7 + 1;
   weeks = Math.min(weeks, Math.max(1, weeksSince));
@@ -680,7 +776,7 @@ function clothSVG({ weeks, width, gid = null, cellMax = 22 }) {
   const W = left + weeks * pitch, H = top + 7 * pitch;
   // levels for single-goal mode
   let qs = null;
-  if (gid) {
+  if (gid && !famMode) {
     const g = goalById(gid);
     const vals = (IDX.byGoal.get(gid) || []).map(l => l.amount).sort((a, b) => a - b);
     if (g && g.unit !== 'check' && vals.length >= 4) qs = [0.25, 0.5, 0.75].map(p => vals[Math.floor(p * (vals.length - 1))]);
@@ -700,10 +796,10 @@ function clothSVG({ weeks, width, gid = null, cellMax = 22 }) {
       if (day < firstDay) continue;
       const x = left + w * pitch, y = top + d * pitch;
       if (day > end) { out += `<rect class="c-empty c-future" x="${x + 0.65}" y="${y + 0.65}" width="${cell - 1.3}" height="${cell - 1.3}" rx="2"/>`; continue; }
-      const ls = (IDX.byDate.get(day) || []).filter(l => !gid || l.goalId === gid);
+      const ls = (IDX.byDate.get(day) || []).filter(l => !fam || fam.has(l.goalId));
       let lvl = 0;
       if (ls.length) {
-        if (!gid) lvl = Math.min(4, ls.length);
+        if (!gid || famMode) lvl = Math.min(4, ls.length);
         else if (!qs) lvl = 3;
         else { const a = ls[0].amount; lvl = a <= qs[0] ? 1 : a <= qs[1] ? 2 : a <= qs[2] ? 3 : 4; }
       }
@@ -723,7 +819,8 @@ function clothLegend(gid) {
   svg += `<rect x="0.6" y="0.6" width="${s - 1.2}" height="${s - 1.2}" rx="2" fill="none" stroke="var(--stitch)" stroke-dasharray="2.6 2" stroke-width="1.2"/>`;
   for (let i = 1; i <= 4; i++) svg += `<rect x="${i * (s + 3)}" y="0" width="${s}" height="${s}" rx="2" fill="var(--heat-${i})"/>`;
   svg += '</svg>';
-  const lo = gid ? 'Less' : '0 goals', hi = gid ? 'More' : '4+';
+  const counts = !gid || isRollup(goalById(gid));
+  const lo = counts ? '0 goals' : 'Less', hi = counts ? '4+' : 'More';
   return `<span class="legend">${lo} ${svg} ${hi}</span>`;
 }
 
@@ -735,17 +832,23 @@ function niceStep(max, n = 3) {
 }
 function cumChart(g, width) {
   const end = today();
-  let start = goalStart(g);
+  const none = g.unit === 'none';
+  let start = none ? familyStart(g.id) : goalStart(g);
   if (diffDays(start, end) < 13) start = addDays(end, -13);
   const n = diffDays(start, end) + 1;
-  const byDay = new Map((IDX.byGoal.get(g.id) || []).map(l => [l.date, l.amount]));
+  let byDay;
+  if (none) {
+    // a broad goal's running total counts days when anything linked to it moved
+    const ids = family(g.id); byDay = new Map();
+    for (const [d, ls] of IDX.byDate) { const k = ls.filter(l => ids.has(l.goalId)).length; if (k) byDay.set(d, k); }
+  } else byDay = new Map((IDX.byGoal.get(g.id) || []).map(l => [l.date, l.amount]));
   const scale = g.unit === 'minutes' ? 1 / 60 : 1;
   const cum = [], dates = [];
   let run = 0;
   for (let i = 0; i < n; i++) {
     const d = addDays(start, i);
     const a = byDay.get(d) || 0;
-    run += g.unit === 'check' ? (a > 0 ? 1 : 0) : a * scale;
+    run += g.unit === 'check' || none ? (a > 0 ? 1 : 0) : a * scale;
     cum.push(run); dates.push(d);
   }
   const W = width, H = 190, L = 40, R = 10, T = 12, B = 26;
@@ -794,6 +897,8 @@ function viewToday() {
     if (!syncReady()) h += syncHint();
     return h;
   }
+  const checkGoals = goals.filter(g => g.unit !== 'none');
+  const broadGoals = goals.filter(g => g.unit === 'none').sort((a, b) => parentsOf(a.id).length - parentsOf(b.id).length || byName(a, b));
 
   // banners
   const last = lastActiveDate();
@@ -813,16 +918,43 @@ function viewToday() {
   h += `<figure class="cloth-fig">${clothSVG({ weeks, width: w })}
     <figcaption><span><b>${a30}</b> of the last 30 days</span>${clothLegend(null)}</figcaption></figure>`;
 
+  // broad goals: last seven days of anything feeding into them
+  if (broadGoals.length) {
+    const days = [...Array(7)].map((_, i) => addDays(today(), i - 6));
+    h += `<h2 class="sub">Bigger goals</h2><ul class="wk broad">
+      <li class="wk-head"><span></span><span class="wk-days-head">${days.map(d => `<b>${esc(parse(d).toLocaleDateString(undefined, { weekday: 'narrow' }))}</b>`).join('')}</span><span class="tot small muted">last 30</span></li>`;
+    for (const g of broadGoals) {
+      const fam = family(g.id);
+      const kids = descendants(g.id).size;
+      const cells = days.map(d => {
+        const ls = (IDX.byDate.get(d) || []).filter(l => fam.has(l.goalId));
+        const tip = fmtD(d, { weekday: 'short', month: 'short', day: 'numeric' }) + '\n' + (ls.length ? ls.map(l => goalById(l.goalId).name).join('\n') : 'Nothing linked was logged');
+        return `<b class="${ls.length ? 'on' : ''}" data-tip="${esc(tip)}"></b>`;
+      }).join('');
+      h += `<li style="--g:var(--g${g.color})"><a class="nm" href="#goals" data-act="open-goal" data-id="${esc(g.id)}"><i></i><span>${esc(g.name)}</span></a>
+        ${kids ? `<span class="days">${cells}</span><span class="tot">${(n => `${n} ${n === 1 ? 'day' : 'days'}`)(activeDays(30, g.id))}</span>` : `<span class="small muted" style="grid-column:2 / span 2">Nothing linked yet</span>`}</li>`;
+    }
+    h += '</ul>';
+  }
+
+  if (!checkGoals.length) {
+    h += `<div class="empty" style="margin-top:20px"><p>None of your goals have a daily check-in yet. Add a specific goal that feeds into one of them, like a routine or a project, and check in on that.</p>
+      <button class="btn primary" data-act="new-goal">Add a goal</button></div>`;
+    if (!syncReady()) h += syncHint();
+    return h;
+  }
+
   // check-in rows
+  if (broadGoals.length) h += '<h2 class="sub">Check in</h2>';
   h += '<ul class="checkin">';
-  for (const g of goals) {
+  for (const g of checkGoals) {
     const l = getLog(dayView, g.id);
     const amt = l ? l.amount || 0 : 0;
     const note = l ? l.note || '' : '';
     const k = g.id;
     h += `<li class="goal-row" style="--g:var(--g${g.color})">
       <div class="thread"></div>
-      <div><div class="gr-name">${esc(g.name)}</div>${g.bet ? `<div class="gr-bet">Bet: ${esc(g.bet)}</div>` : `<div class="gr-bet muted">No current bet. <a href="#goals" data-act="open-goal" data-id="${esc(g.id)}">Set one</a></div>`}</div>
+      <div><div class="gr-name">${esc(g.name)}</div>${g.bet ? `<div class="gr-bet">Bet: ${esc(g.bet)}</div>` : `<div class="gr-bet muted">No current bet. <a href="#goals" data-act="open-goal" data-setbet="1" data-id="${esc(g.id)}">Set one</a></div>`}</div>
       <div class="gr-val ${amt ? '' : 'zero'}">${esc(fmtAmt(g, amt))}</div>
       <div class="gr-ctl">`;
     if (g.unit === 'minutes') {
@@ -882,7 +1014,8 @@ function viewProgress() {
     <figcaption><span><b>${a30}</b> of the last 30 days${gid ? '' : ' with any check-in'}</span>${clothLegend(gid)}</figcaption></figure>`;
 
   const scope = gid ? [goalById(gid)] : goals;
-  const ids = new Set(scope.map(g => g.id));
+  const ids = gid ? family(gid) : new Set(goals.map(g => g.id));
+  if (gid && ids.size > 1) h += `<p class="small ink2" style="margin-top:-8px">Counting ${esc(goalById(gid).name)} and everything linked under it: ${goalNames([...descendants(gid)])}.</p>`;
   const checkins = live('logs').filter(l => l.amount > 0 && ids.has(l.goalId)).length;
   const bets = live('bets').filter(b => ids.has(b.goalId));
   const dead = bets.filter(b => b.outcome === 'dead').length;
@@ -898,11 +1031,19 @@ function viewProgress() {
   for (const g of scope) {
     const logs = IDX.byGoal.get(g.id) || [];
     const total = logs.reduce((s, l) => s + l.amount, 0);
+    const kids = descendants(g.id);
+    const none = g.unit === 'none';
+    const totalTxt = none ? fmtTotal(g, 0, familyActiveTotal(g.id)) : fmtTotal(g, total, logs.length);
+    const via = kids.size ? `<p class="small ink2" style="margin:-4px 0 10px">${none ? 'Progress comes from' : 'Last-30 count includes'} ${goalNames([...kids])}.</p>` : '';
     h += `<section class="goal-sec" style="--g:var(--g${g.color})">
       <header><span class="swatch"></span><h2>${esc(g.name)}${g.archived ? ' <span class="muted small">(archived)</span>' : ''}</h2>
-      <p>${activeDays(30, g.id)} of last 30 days · ${esc(fmtTotal(g, total, logs.length))} total</p></header>
-      <div class="chart-wrap">${cumChart(g, w - 30)}
-      <p class="small muted" style="margin:6px 0 4px">Running total${g.unit === 'minutes' ? ', in hours' : g.unit === 'check' ? ', in days done' : `, in ${esc(g.unitLabel || 'times')}`}.${live('wins').some(x => x.goalId === g.id) ? ' Dots mark milestones.' : ''}</p></div>
+      <p>${activeDays(30, g.id)} of last 30 days · ${esc(totalTxt)}${none ? '' : ' total'}</p></header>${via}`;
+    if (none && !kids.size) {
+      h += `<p class="muted">This goal has no daily check-in, so its progress comes from goals linked under it. <a href="#goals" data-act="open-goal" data-id="${esc(g.id)}">Link some goals</a></p></section>`;
+      continue;
+    }
+    h += `<div class="chart-wrap">${cumChart(g, w - 30)}
+      <p class="small muted" style="margin:6px 0 4px">Running total${g.unit === 'minutes' ? ', in hours' : g.unit === 'check' ? ', in days done' : none ? ', in days when any linked goal moved' : `, in ${esc(g.unitLabel || 'times')}`}.${live('wins').some(x => x.goalId === g.id) ? ' Dots mark milestones.' : ''}</p></div>
     </section>`;
   }
   return h;
@@ -916,6 +1057,18 @@ function viewGoals() {
   h += '</div>';
   if (goalForm === 'new') h += `<div class="panel">${goalFormHTML(null)}</div>`;
   if (!goals.length && goalForm !== 'new') h += `<div class="empty"><p>No goals yet. Short-term or long-term, each one gets a current bet and a way to track it.</p></div>`;
+  // map of how goals nest, shown once anything is linked as part of something else
+  const roots = active.filter(g => childrenOf(g.id).some(c => !goalById(c).archived) && !parentsOf(g.id).some(p => !goalById(p).archived)).sort(byName);
+  if (roots.length) {
+    const node = (id, path) => {
+      const g = goalById(id);
+      const kids = childrenOf(id).map(goalById).filter(x => x && !x.archived).sort(byName);
+      const others = path.length ? parentsOf(id).filter(p => p !== path[path.length - 1] && !goalById(p).archived) : [];
+      return `<li style="--g:var(--g${g.color})"><button class="mapbtn" data-act="map-open" data-id="${esc(id)}"><i></i><span>${esc(g.name)}</span></button>${others.length ? `<span class="also">also in ${goalNames(others)}</span>` : ''}
+        ${kids.length && !path.includes(id) ? `<ul>${kids.map(k => node(k.id, [...path, id])).join('')}</ul>` : ''}</li>`;
+    };
+    h += `<nav class="gmap" aria-label="How your goals connect"><ul>${roots.map(r => node(r.id, [])).join('')}</ul></nav>`;
+  }
   if (active.length) h += `<ul class="glist">${active.map(goalItem).join('')}</ul>`;
   if (archived.length) h += `<h2>Archived</h2><ul class="glist">${archived.map(goalItem).join('')}</ul>`;
   return h;
@@ -930,12 +1083,13 @@ function goalItem(g) {
       <span class="gr-name">${esc(g.name)}</span>
       <span class="tag">${g.horizon === 'long' ? 'Long term' : 'Short term'}</span>
       <span class="meta">${g.bet ? 'Bet: ' + esc(g.bet) : 'No current bet'}${tried ? ` · ${tried} tried, ${dead} dead ${dead === 1 ? 'end' : 'ends'}` : ''}</span>
+      ${parentsOf(g.id).length ? `<span class="meta small muted" style="grid-column:2 / span 2">Part of ${goalNames(parentsOf(g.id))}</span>` : ''}
     </button>`;
   if (open) {
     h += '<div class="gbody">';
     if (goalForm === g.id) { h += `<div class="panel">${goalFormHTML(g)}</div></div></li>`; return h; }
     if (g.why) h += `<p class="ink2"><b>Why:</b> ${esc(g.why)}</p>`;
-    h += `<p class="small muted">Tracked as ${g.unit === 'minutes' ? 'minutes' : g.unit === 'check' ? 'done or not done' : esc(g.unitLabel || 'a count')}. Started ${esc(fmtD(tsDate(g.createdAt), { month: 'short', day: 'numeric', year: 'numeric' }))}. Active ${activeDays(30, g.id)} of the last 30 days.</p>`;
+    h += `<p class="small muted">${g.unit === 'none' ? 'No daily check-in; progress comes from linked goals' : `Tracked as ${g.unit === 'minutes' ? 'minutes' : g.unit === 'check' ? 'done or not done' : esc(g.unitLabel || 'a count')}`}. Started ${esc(fmtD(tsDate(g.createdAt), { month: 'short', day: 'numeric', year: 'numeric' }))}. Active ${activeDays(30, g.id)} of the last 30 days.</p>`;
 
     // current bet
     h += '<h3>Current bet</h3>';
@@ -973,12 +1127,44 @@ function goalItem(g) {
       <label class="sr" for="wind-${esc(g.id)}">Date</label><input type="date" id="wind-${esc(g.id)}" name="date" value="${today()}" max="${today()}" style="width:auto">
       <button class="btn" type="submit">Add</button></form>`;
 
+    // links
+    h += '<h3>Links</h3>';
+    const chips = (ids, kind) => ids.map(goalById).filter(Boolean).sort(byName).map(o => {
+      const lid = kind === 'parent' ? linkId('contributes', g.id, o.id) : kind === 'child' ? linkId('contributes', o.id, g.id) : linkId('related', g.id, o.id);
+      return `<span class="lchip" style="--g:var(--g${o.color})"><button data-act="map-open" data-id="${esc(o.id)}"><i></i>${esc(o.name)}</button><button class="x" data-act="unlink" data-link="${esc(lid)}" aria-label="Remove link to ${esc(o.name)}">×</button></span>`;
+    }).join('');
+    const ps = parentsOf(g.id), cs = childrenOf(g.id), rs = relatedOf(g.id);
+    if (ps.length || cs.length || rs.length) {
+      h += '<dl class="links">';
+      if (ps.length) h += `<dt>Part of</dt><dd>${chips(ps, 'parent')}</dd>`;
+      if (cs.length) h += `<dt>Made up of</dt><dd>${chips(cs, 'child')}</dd>`;
+      if (rs.length) h += `<dt>Related to</dt><dd>${chips(rs, 'related')}</dd>`;
+      h += '</dl>';
+    } else h += `<p class="muted small">Link this goal to broader goals it serves, narrower goals that feed it, or goals that are just related.</p>`;
+    const others = allGoals().filter(o => o.id !== g.id && !o.archived).sort(byName);
+    if (others.length) {
+      h += `<form class="row linkform" data-form="link" data-id="${esc(g.id)}">
+        <label class="sr" for="lk-${esc(g.id)}">Link type</label><select id="lk-${esc(g.id)}" name="kind"><option value="parent">Part of</option><option value="child">Made up of</option><option value="related">Related to</option></select>
+        <label class="sr" for="lt-${esc(g.id)}">Goal</label><select id="lt-${esc(g.id)}" name="target">${others.map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select>
+        <button class="btn" type="submit">Link</button></form>`;
+      if (linkError && linkError.goalId === g.id) h += `<p class="status-line err" role="alert">${esc(linkError.msg)}</p>`;
+    }
+
     h += `<div class="row" style="margin-top:26px"><button class="btn" data-act="edit-goal" data-id="${esc(g.id)}">Edit goal</button>
       <button class="btn quiet" data-act="archive-goal" data-id="${esc(g.id)}">${g.archived ? 'Unarchive' : 'Archive'}</button>
       <button class="btn quiet danger" data-act="delete-goal" data-id="${esc(g.id)}">Delete</button></div>`;
     h += '</div>';
   }
   return h + '</li>';
+}
+function parentPicker(g) {
+  // a goal can't be part of itself or of anything already inside it
+  const blocked = g ? new Set([g.id, ...descendants(g.id)]) : new Set();
+  const opts = allGoals().filter(o => !o.archived && !blocked.has(o.id)).sort(byName);
+  if (!opts.length) return '';
+  const current = new Set(g ? parentsOf(g.id) : []);
+  return `<fieldset class="f picker"><legend>Part of</legend><small>Broader goals this one feeds into. Pick as many as fit.</small>
+    <div class="pick">${opts.map(o => `<label style="--g:var(--g${o.color})"><input type="checkbox" name="parents" value="${esc(o.id)}" ${current.has(o.id) ? 'checked' : ''}><span><i></i>${esc(o.name)}</span></label>`).join('')}</div></fieldset>`;
 }
 function goalFormHTML(g) {
   const used = new Set(live('goals').filter(x => !x.archived && (!g || x.id !== g.id)).map(x => x.color));
@@ -998,9 +1184,12 @@ function goalFormHTML(g) {
         <label><input type="radio" name="unit" value="minutes" ${unit === 'minutes' ? 'checked' : ''} data-act-change="unit"><span>Minutes</span></label>
         <label><input type="radio" name="unit" value="count" ${unit === 'count' ? 'checked' : ''} data-act-change="unit"><span>A count</span></label>
         <label><input type="radio" name="unit" value="check" ${unit === 'check' ? 'checked' : ''} data-act-change="unit"><span>Done or not</span></label>
-      </div></div>
+        <label><input type="radio" name="unit" value="none" ${unit === 'none' ? 'checked' : ''} data-act-change="unit"><span>No check-in</span></label>
+      </div>
+      <small class="muted" data-unitnone ${unit === 'none' ? '' : 'hidden'} style="display:block;font-size:14px;margin-top:6px">For broad goals. Its progress comes from the goals you link under it.</small></div>
     <label class="f" data-unitlabel ${unit === 'count' ? '' : 'hidden'}><span>What are you counting?</span><input type="text" name="unitLabel" maxlength="24" value="${g ? esc(g.unitLabel || '') : ''}" placeholder="applications, pages, workouts"></label>
     ${g ? '' : `<label class="f"><span>Current bet</span><input type="text" name="bet" maxlength="140" placeholder="The single next thing you're trying"><small>Optional. You can set it later.</small></label>`}
+    ${parentPicker(g)}
     <div class="f" style="margin-bottom:18px"><span style="display:block;font-weight:700;font-size:15px;margin-bottom:6px">Color</span>
       <div class="swatches" role="radiogroup" aria-label="Color">${[1, 2, 3, 4, 5, 6, 7, 8].map(c => `<label style="--g:var(--g${c})"><input type="radio" name="color" value="${c}" ${c === color ? 'checked' : ''} aria-label="Color ${c}"><span></span></label>`).join('')}</div></div>
     <div class="row"><button class="btn primary" type="submit">${g ? 'Save goal' : 'Add goal'}</button><button class="btn quiet" type="button" data-act="goal-cancel">Cancel</button></div>
@@ -1017,7 +1206,9 @@ function viewReview() {
     <strong>${esc(fmtD(wk))} to ${esc(fmtD(wkEnd))}</strong>${wk === thisWk ? '<span class="muted small">this week</span>' : ''}
     <button class="icon-btn" data-act="wk-next" aria-label="Next week" ${wk >= thisWk ? 'disabled style="opacity:.3"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>`;
 
-  const goals = allGoals().filter(g => !g.archived || (IDX.byGoal.get(g.id) || []).some(l => l.date >= wk && l.date <= wkEnd));
+  const goals = allGoals()
+    .filter(g => !g.archived || (IDX.byGoal.get(g.id) || []).some(l => l.date >= wk && l.date <= wkEnd))
+    .filter(g => g.unit !== 'none' || descendants(g.id).size);
   if (goals.length) {
     let activeCount = 0;
     for (let i = 0; i < 7; i++) if (IDX.byDate.has(addDays(wk, i))) activeCount++;
@@ -1025,10 +1216,16 @@ function viewReview() {
     h += `<ul class="wk"><li style="border-bottom:0;padding-bottom:0"><span></span><span class="wk-days-head">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(d => `<b>${d}</b>`).join('')}</span><span class="tot small muted">week</span></li>`;
     for (const g of goals) {
       let days = '', total = 0, n = 0;
+      const fam = g.unit === 'none' ? family(g.id) : null;
       for (let i = 0; i < 7; i++) {
-        const d = addDays(wk, i), l = getLog(d, g.id), a = l ? l.amount || 0 : 0;
+        const d = addDays(wk, i);
+        let a, tipTxt;
+        if (fam) {
+          const ls = (IDX.byDate.get(d) || []).filter(l => fam.has(l.goalId));
+          a = ls.length; tipTxt = ls.map(l => goalById(l.goalId).name).join(', ');
+        } else { const l = getLog(d, g.id); a = l ? l.amount || 0 : 0; tipTxt = a > 0 ? fmtAmt(g, a) : ''; }
         if (a > 0) { total += a; n++; }
-        days += `<b class="${a > 0 ? 'on' : ''}" title="${esc(fmtD(d, { weekday: 'short' }) + (a > 0 ? ': ' + fmtAmt(g, a) : ''))}"></b>`;
+        days += `<b class="${a > 0 ? 'on' : ''}" title="${esc(fmtD(d, { weekday: 'short' }) + (tipTxt ? ': ' + tipTxt : ''))}"></b>`;
       }
       h += `<li style="--g:var(--g${g.color})"><span class="nm"><i></i><span>${esc(g.name)}</span></span><span class="days">${days}</span><span class="tot">${n ? esc(fmtTotal(g, total, n)) : '—'}</span></li>`;
     }
@@ -1146,13 +1343,24 @@ document.addEventListener('click', e => {
     case 'note': if (openNotes.has(id)) openNotes.delete(id); else openNotes.add(id); render(); break;
     case 'new-goal': goalForm = 'new'; openGoal = null; if (view !== 'goals') location.hash = '#goals'; else render(); window.scrollTo(0, 0); break;
     case 'goal-cancel': goalForm = null; render(); break;
-    case 'open-goal': e.preventDefault(); openGoal = id; betForm = g && !g.bet ? { goalId: id, outcome: 'edit' } : null; location.hash = '#goals'; break;
-    case 'toggle-goal': openGoal = openGoal === id ? null : id; goalForm = null; betForm = null; render(); break;
+    case 'open-goal':
+      e.preventDefault(); openGoal = id; goalForm = null; linkError = null;
+      betForm = t.dataset.setbet ? { goalId: id, outcome: 'edit' } : null;
+      if (view !== 'goals') location.hash = '#goals'; else render();
+      setTimeout(() => { const el = $(`[data-key="gh-${CSS.escape(id)}"]`); if (el) el.scrollIntoView({ block: 'start' }); }, 0);
+      break;
+    case 'map-open':
+      openGoal = id; goalForm = null; betForm = null; linkError = null; render();
+      { const el = $(`[data-key="gh-${CSS.escape(id)}"]`); if (el) { el.scrollIntoView({ block: 'start' }); el.focus({ preventScroll: true }); } }
+      break;
+    case 'unlink': { const l = state.links[t.dataset.link]; linkError = null; if (l && !l.deleted) remove('links', l.id); break; }
+    case 'toggle-goal': openGoal = openGoal === id ? null : id; goalForm = null; betForm = null; linkError = null; render(); break;
     case 'edit-goal': goalForm = id; render(); break;
     case 'archive-goal': if (g) put('goals', { ...g, archived: !g.archived }); break;
     case 'delete-goal':
       if (g && confirm(`Delete "${g.name}" and all of its check-ins, bets and milestones? Archiving keeps the history instead.`)) {
         for (const c of ['logs', 'bets', 'wins']) for (const r of live(c)) if (r.goalId === g.id) state[c][r.id] = { id: r.id, deleted: true, updatedAt: Date.now() };
+        for (const l of live('links')) if (l.from === g.id || l.to === g.id) state.links[l.id] = { id: l.id, deleted: true, updatedAt: Date.now() };
         openGoal = null; remove('goals', g.id);
       }
       break;
@@ -1203,6 +1411,19 @@ document.addEventListener('submit', async e => {
     if (!existing) { rec.bet = (fd.get('bet') || '').trim(); rec.betSince = today(); }
     goalForm = null; openGoal = existing ? existing.id : null;
     put('goals', rec);
+    // sync "part of" links with the picker
+    const want = new Set(fd.getAll('parents'));
+    const blocked = new Set([rec.id, ...descendants(rec.id)]);
+    for (const p of parentsOf(rec.id)) if (!want.has(p) && !goalById(p).archived) remove('links', linkId('contributes', rec.id, p));
+    for (const p of want) if (!blocked.has(p) && !parentsOf(rec.id).includes(p)) addLink('contributes', rec.id, p);
+  } else if (kind === 'link') {
+    const gid = f.dataset.id, target = fd.get('target'), k = fd.get('kind');
+    if (!goalById(gid) || !goalById(target)) return;
+    const err = k === 'parent' ? addLink('contributes', gid, target)
+      : k === 'child' ? addLink('contributes', target, gid)
+      : addLink('related', gid, target);
+    linkError = err ? { goalId: gid, msg: err } : null;
+    render();
   } else if (kind === 'bet') {
     const g = goalById(f.dataset.id); if (!g) return;
     const o = f.dataset.outcome, next = (fd.get('next') || '').trim();
@@ -1260,7 +1481,11 @@ document.addEventListener('change', e => {
   const t = e.target.closest('[data-act-change]');
   if (!t) return;
   const a = t.dataset.actChange;
-  if (a === 'unit') { const f = t.closest('form'); const l = $('[data-unitlabel]', f); if (l) l.hidden = t.value !== 'count'; }
+  if (a === 'unit') {
+    const f = t.closest('form');
+    const l = $('[data-unitlabel]', f); if (l) l.hidden = t.value !== 'count';
+    const n = $('[data-unitnone]', f); if (n) n.hidden = t.value !== 'none';
+  }
   if (a === 'device') { cfg.device = t.value.trim() || cfg.device; saveCfg(); }
   if (a === 'theme') { cfg.theme = t.value; saveCfg(); applyTheme(); }
   if (a === 'threshold') setSetting('ideaThreshold', clamp(Number(t.value) || 0, 0, 30));
@@ -1309,8 +1534,9 @@ function chartHover(e) {
   const xh = svg.querySelector('.xhair'); xh.setAttribute('x1', cx); xh.setAttribute('x2', cx);
   const xd = svg.querySelector('.xdot'); xd.setAttribute('cx', cx); xd.setAttribute('cy', cy);
   const g = c.g, d = c.dates[i], day = c.byDay.get(d) || 0;
-  const totalTxt = g.unit === 'minutes' ? `${+c.cum[i].toFixed(1)} hours` : g.unit === 'check' ? `${c.cum[i]} days` : `${c.cum[i]} ${unitWord(g, c.cum[i])}`;
-  let txt = `${fmtD(d, { weekday: 'short', month: 'short', day: 'numeric' })}\nRunning total: ${totalTxt}\nThat day: ${day ? fmtAmt(g, day) : 'no check-in'}`;
+  const totalTxt = g.unit === 'minutes' ? `${+c.cum[i].toFixed(1)} hours` : g.unit === 'check' ? `${c.cum[i]} days` : g.unit === 'none' ? `${c.cum[i]} active days` : `${c.cum[i]} ${unitWord(g, c.cum[i])}`;
+  const dayTxt = g.unit === 'none' ? (day ? `${day} linked ${day === 1 ? 'goal' : 'goals'} active` : 'no activity') : (day ? fmtAmt(g, day) : 'no check-in');
+  let txt = `${fmtD(d, { weekday: 'short', month: 'short', day: 'numeric' })}\nRunning total: ${totalTxt}\nThat day: ${dayTxt}`;
   for (const w of c.wins) if (w.date === d) txt += `\nMilestone: ${w.text}`;
   showTipAt(txt, r.left + cx * (r.width / c.W), r.top + cy * (r.width / c.W));
 }
