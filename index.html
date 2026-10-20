@@ -481,6 +481,10 @@ let state = normalize(readLS(LS_STATE, null));
 let cfg = Object.assign({ owner: '', repo: 'goal-tracker-data', path: 'data.json', token: '', lastSync: 0, lastChange: 0, device: '', theme: 'auto',
   jev: false, branch: 'main', pendingSuggest: [], lastDispatch: 0, jevError: '' }, readLS(LS_CFG, {}));
 let sugg = readLS(LS_SUGG, { suggestions: {}, status: null });
+const NET_ERR = 'Couldn\'t reach GitHub to check for suggestions. They\'ll come through on the next sync once the connection is back.';
+let jevNetFails = 0;
+// older versions saved one-off network errors; clear those on load
+if (/^Couldn't reach GitHub/.test(cfg.jevError || '')) cfg.jevError = '';
 if (!cfg.device) { cfg.device = 'device-' + Math.random().toString(36).slice(2, 6); writeLS(LS_CFG, cfg); }
 const saveCfg = () => writeLS(LS_CFG, cfg);
 const saveLocal = () => writeLS(LS_STATE, state);
@@ -964,14 +968,23 @@ async function syncNow() {
     setSync('ok');
     // suggestion runs start only after the new goals are saved on GitHub
     if (cfg.jev) {
+      let ids = null;
       try {
         if (cfg.pendingSuggest.length) {
-          const ids = cfg.pendingSuggest.slice();
+          ids = cfg.pendingSuggest.slice();
           cfg.pendingSuggest = []; saveCfg();
           await dispatchSuggest(ids.length === 1 ? ids[0] : '');
+          ids = null;
         }
         await fetchSuggestions();
-      } catch (e) { cfg.jevError = `Couldn't reach GitHub for suggestions (${e.message}).`; saveCfg(); }
+        jevNetFails = 0;
+        if (cfg.jevError === NET_ERR) { cfg.jevError = ''; saveCfg(); requestRender(); }
+      } catch (e) {
+        // A request cut off by a reload, a backgrounded tab or a network blip. Queue any
+        // unstarted run again, and only say something if it keeps happening.
+        if (ids) { cfg.pendingSuggest = [...new Set([...ids, ...cfg.pendingSuggest])]; saveCfg(); }
+        if (++jevNetFails >= 2 && document.visibilityState === 'visible') { cfg.jevError = NET_ERR; saveCfg(); requestRender(); }
+      }
     }
   } catch (e) {
     if (e instanceof SyncError) setSync('error', e.message);
@@ -1163,12 +1176,14 @@ function quickLogHTML() {
   return `<div class="qlog" role="search">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
     <label class="sr" for="qlog">Find a goal to log</label>
-    <input id="qlog" type="search" autocomplete="off" enterkeyhint="go" placeholder="Log something…" value="${esc(todayQuery)}" data-act-input="qlog" data-key="qlog">
+    <input id="qlog" type="search" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Log something…" value="${esc(todayQuery)}" data-act-input="qlog" data-key="qlog">
     ${todayQuery ? '<button class="icon-btn" data-act="qlog-clear" aria-label="Clear search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>' : '<kbd class="qlog-key" aria-hidden="true">/</kbd>'}
   </div>`;
 }
+// compare without case or accents: "cafe", "CAFE" and "Café" all match
+const fold = s => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 function matchScore(g, q) {
-  const n = g.name.toLowerCase(), t = q.toLowerCase().trim();
+  const n = fold(g.name), t = fold(q).trim();
   if (!t) return 0;
   if (n === t) return 100;
   if (n.startsWith(t)) return 80;
@@ -1176,7 +1191,7 @@ function matchScore(g, q) {
   if (n.includes(t)) return 40;
   const words = t.split(/\s+/).filter(Boolean);
   if (words.length > 1 && words.every(w => n.includes(w))) return 30;
-  if ((g.bet || '').toLowerCase().includes(t) || (g.why || '').toLowerCase().includes(t)) return 10;
+  if (fold(g.bet).includes(t) || fold(g.why).includes(t)) return 10;
   return 0;
 }
 // direct connection strength between two goals, 0 to 1
