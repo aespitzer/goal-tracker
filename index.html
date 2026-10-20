@@ -825,10 +825,16 @@ function reviewableSuggestions() {
     const c = s.closeness ?? 0.5;
     return s.type === 'mutual' ? [{ from: s.from, to: s.to, c }, { from: s.to, to: s.from, c }] : [{ from: s.from, to: s.to, c }];
   });
+  // Links you've already made always count: if they connect the pair at all, the suggestion
+  // adds nothing (adding it would only put it straight onto the "links you can drop" list).
+  // Other pending suggestions only count when each step is at least as close as this one.
+  const upAccepted = upMap();
   const up = upMap(extra);
+  const connected = (a, b) => altPath(a, b, upAccepted) || altPath(b, a, upAccepted);
   const shown = [], hidden = [];
   for (const s of open) {
-    const via = s.type === 'contributes' ? altPath(s.from, s.to, up, s.closeness ?? 0) : null;
+    const via = connected(s.from, s.to)
+      || (s.type === 'contributes' ? altPath(s.from, s.to, up, s.closeness ?? 0) : null);
     (via ? hidden : shown).push(via ? { ...s, via } : s);
   }
   const rank = s => (s.closeness ?? 0.5) * (s.p || 0);
