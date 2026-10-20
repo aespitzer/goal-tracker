@@ -1236,7 +1236,7 @@ function viewToday() {
     }
     const noteOpen = openNotes.has(g.id);
     h += `<button class="chip text" data-act="note" data-id="${esc(g.id)}" aria-expanded="${noteOpen}" data-key="note-${esc(k)}">${note ? 'Edit note' : 'Add note'}</button></div>`;
-    if (noteOpen) h += `<div class="gr-note"><label class="sr" for="n-${esc(k)}">Note for ${esc(g.name)}</label><textarea id="n-${esc(k)}" data-act-input="note" data-id="${esc(g.id)}" placeholder="What did you do? Anything worth remembering?" data-autofocus data-key="n-${esc(k)}">${esc(note)}</textarea></div>`;
+    if (noteOpen) h += `<div class="gr-note"><label class="sr" for="n-${esc(k)}">Note for ${esc(g.name)}</label><textarea id="n-${esc(k)}" data-act-input="note" data-id="${esc(g.id)}" placeholder="What did you do? Ctrl+Enter to save." data-autofocus data-key="n-${esc(k)}">${esc(note)}</textarea></div>`;
     else if (note) h += `<div class="gr-note"><p class="saved-note">${esc(note)}</p></div>`;
     h += '</li>';
   }
@@ -1704,7 +1704,13 @@ document.addEventListener('click', e => {
     case 'reopen': if (g) reopenGoal(g); break;
     case 'amt-edit': editAmt = id; render(); break;
     case 'amt-done': { const inp = $(`input[data-act-input="amt"][data-id="${CSS.escape(id)}"]`); editAmt = null; if (inp) setAmount(id, dayView, Number(inp.value) || 0); render(); break; }
-    case 'note': if (openNotes.has(id)) openNotes.delete(id); else openNotes.add(id); render(); break;
+    case 'note': {
+      const opening = !openNotes.has(id);
+      if (opening) openNotes.add(id); else openNotes.delete(id);
+      render();
+      if (opening) { const ta = $(`#n-${CSS.escape(id)}`); if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
+      break;
+    }
     case 'new-goal': goalForm = 'new'; openGoal = null; if (view !== 'goals') location.hash = '#goals'; else render(); window.scrollTo(0, 0); break;
     case 'goal-cancel': goalForm = null; render(); break;
     case 'open-goal':
@@ -1862,6 +1868,17 @@ document.addEventListener('input', e => {
 document.addEventListener('keydown', e => {
   const t = e.target;
   if (t.dataset && t.dataset.actInput === 'amt' && e.key === 'Enter') { e.preventDefault(); const b = $(`[data-act="amt-done"][data-id="${CSS.escape(t.dataset.id)}"]`); if (b) b.click(); }
+  // Ctrl+Enter (Cmd+Enter on a Mac) saves a check-in note and closes it
+  if (t.dataset && t.dataset.actInput === 'note' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    const gid = t.dataset.id;
+    clearTimeout(debouncers.get('note' + gid));
+    openNotes.delete(gid);
+    t.blur();
+    setNote(gid, dayView, t.value);
+    render();
+    const btn = $(`[data-act="note"][data-id="${CSS.escape(gid)}"]`); if (btn) btn.focus({ preventScroll: true });
+  }
 });
 
 document.addEventListener('change', e => {
