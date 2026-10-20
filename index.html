@@ -157,7 +157,7 @@ input[type=text], input[type=number], input[type=password], input[type=date], te
   padding: 10px 12px; font-size: 16px; min-height: 44px;
 }
 textarea { resize: vertical; min-height: 84px; line-height: 1.45; }
-input:focus, textarea:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-wash); }
+input:focus, textarea:focus, select:focus, input:focus-visible, textarea:focus-visible, select:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-wash); }
 .seg { display: inline-flex; border: 1.5px solid var(--base); border-radius: 10px; overflow: hidden; flex-wrap: wrap; }
 .seg label { position: relative; }
 .seg input { position: absolute; opacity: 0; inset: 0; }
@@ -333,6 +333,15 @@ fieldset.picker small { display: block; color: var(--muted); font-size: 14px; ma
 .pick input:checked + span { border-color: var(--g); background: color-mix(in srgb, var(--g) 18%, var(--surface)); }
 .pick input:focus-visible + span { outline: 2.5px solid var(--accent); outline-offset: 2px; }
 h2.sub { font-size: 19px; margin: 26px 0 8px; }
+.qlog { position: sticky; top: calc(61px + env(safe-area-inset-top)); z-index: 10; display: flex; align-items: center; gap: 8px;
+  margin: 0 -16px 18px; padding: 8px 16px; background: color-mix(in srgb, var(--plane) 92%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.qlog > svg { position: absolute; left: 30px; width: 18px; height: 18px; color: var(--muted); pointer-events: none; }
+.qlog input { flex: 1; padding-left: 40px; border-radius: 999px; }
+.qlog input::-webkit-search-cancel-button { display: none; }
+.qlog .icon-btn { position: absolute; right: 20px; width: 36px; height: 36px; }
+.qlog-key { position: absolute; right: 28px; font: 600 12px var(--body); color: var(--muted); border: 1px solid var(--base); border-radius: 5px; padding: 1px 6px; pointer-events: none; }
+@media (hover: none) { .qlog-key { display: none; } }
 .sugg { background: var(--surface); border: 1px solid var(--hair); border-radius: 12px; padding: 4px 14px 10px; margin: 0 0 22px; }
 .sugg h2.sub { margin-top: 12px; }
 .sg-list { list-style: none; margin: 0 0 8px; padding: 0; }
@@ -1138,6 +1147,80 @@ function cumChart(g, width) {
 }
 
 /* ---------- views ---------- */
+/* ---------- quick log ----------
+   Type to find a goal to log. Name matches come first; below them, other goals
+   ranked by how closely they connect to whatever matched (Jev's closeness where
+   it has scored the pair, otherwise how near they sit in your links). */
+let todayQuery = '';
+let newGoalName = '';
+function quickLogHTML() {
+  return `<div class="qlog" role="search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+    <label class="sr" for="qlog">Find a goal to log</label>
+    <input id="qlog" type="search" autocomplete="off" enterkeyhint="go" placeholder="Log something…" value="${esc(todayQuery)}" data-act-input="qlog" data-key="qlog">
+    ${todayQuery ? '<button class="icon-btn" data-act="qlog-clear" aria-label="Clear search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>' : '<kbd class="qlog-key" aria-hidden="true">/</kbd>'}
+  </div>`;
+}
+function matchScore(g, q) {
+  const n = g.name.toLowerCase(), t = q.toLowerCase().trim();
+  if (!t) return 0;
+  if (n === t) return 100;
+  if (n.startsWith(t)) return 80;
+  if (n.split(/[^\p{L}\p{N}]+/u).some(w => w.startsWith(t))) return 60;
+  if (n.includes(t)) return 40;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length > 1 && words.every(w => n.includes(w))) return 30;
+  if ((g.bet || '').toLowerCase().includes(t) || (g.why || '').toLowerCase().includes(t)) return 10;
+  return 0;
+}
+// direct connection strength between two goals, 0 to 1
+function pairStrength(a, b) {
+  let r = 0;
+  const L = id => { const l = state.links[id]; return l && !l.deleted ? l : null; };
+  for (const l of [L(linkId('contributes', a, b)), L(linkId('contributes', b, a)), L(linkId('mutual', a, b))]) if (l) r = Math.max(r, l.closeness ?? DIRECT);
+  const rel = L(linkId('related', a, b)); if (rel) r = Math.max(r, rel.closeness ?? 0.5);
+  const s = (sugg.suggestions || {})[pairKey(a, b)];
+  const dismissed = state.dismissed[pairKey(a, b)];
+  if (s && !(dismissed && !dismissed.deleted)) r = Math.max(r, (s.closeness ?? 0.5) * Math.min(1, s.p || 1));
+  return r;
+}
+// hops between goals over any kind of link
+function hopsFrom(id, max = 4) {
+  const dist = new Map([[id, 0]]), queue = [id];
+  while (queue.length) {
+    const x = queue.shift(), d = dist.get(x);
+    if (d >= max) continue;
+    for (const y of [...parentsOf(x), ...childrenOf(x), ...mutualOf(x), ...relatedOf(x)]) if (!dist.has(y)) { dist.set(y, d + 1); queue.push(y); }
+  }
+  return dist;
+}
+function quickLogResults(goals, checkGoals) {
+  const q = todayQuery.trim();
+  const anchors = goals.map(g => [g, matchScore(g, q)]).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1] || byName(a[0], b[0])).map(x => x[0]);
+  const direct = anchors.filter(g => g.unit !== 'none');
+  const directIds = new Set(direct.map(g => g.id));
+  let h = '';
+  if (!anchors.length) {
+    newGoalName = '';
+    return h + `<div class="empty"><p>No goal matches “${esc(q)}”.</p><button class="btn" data-act="qlog-new">Add “${esc(q)}” as a goal</button></div>`;
+  }
+  const hops = anchors.map(a => [a.id, hopsFrom(a.id)]);
+  const related = checkGoals.filter(g => !directIds.has(g.id)).map(g => {
+    let r = 0;
+    for (const [aid, dist] of hops) {
+      r = Math.max(r, pairStrength(aid, g.id));
+      const d = dist.get(g.id);
+      if (d) r = Math.max(r, 0.5 / d);
+    }
+    return [g, r];
+  }).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1] || byName(a[0], b[0])).slice(0, 8).map(x => x[0]);
+  if (direct.length) h += `<ul class="checkin">${direct.map(checkinRow).join('')}</ul>`;
+  else h += `<p class="small ink2" style="margin:4px 0 0">${goalNames(anchors.map(a => a.id))} ${anchors.length === 1 ? 'has' : 'have'} no daily check-in. Here's what feeds ${anchors.length === 1 ? 'it' : 'them'}:</p>`;
+  if (related.length) h += `<h2 class="sub">${direct.length ? 'Related' : 'Linked goals'}</h2><ul class="checkin">${related.map(checkinRow).join('')}</ul>`;
+  const hidden = checkGoals.length - direct.length - related.length;
+  if (hidden > 0) h += `<p class="small muted" style="margin-top:14px">${hidden} other ${hidden === 1 ? 'goal is' : 'goals are'} hidden. <a href="#" data-act="qlog-clear">Show all</a></p>`;
+  return h;
+}
 function viewToday() {
   const goals = goalsForDay(dayView);
   const isToday = dayView === today();
@@ -1155,6 +1238,8 @@ function viewToday() {
   }
   const checkGoals = goals.filter(g => g.unit !== 'none');
   const broadGoals = goals.filter(g => g.unit === 'none').sort((a, b) => parentsOf(a.id).length - parentsOf(b.id).length || byName(a, b));
+  if (checkGoals.length) h += quickLogHTML();
+  if (todayQuery.trim() && checkGoals.length) return h + quickLogResults(goals, checkGoals);
 
   // banners
   const nSugg = cfg.jev && isToday ? pendingSuggestions().length : 0;
@@ -1205,43 +1290,46 @@ function viewToday() {
   // check-in rows
   if (broadGoals.length) h += '<h2 class="sub">Check in</h2>';
   h += '<ul class="checkin">';
-  for (const g of checkGoals) {
-    const l = getLog(dayView, g.id);
-    const amt = l ? l.amount || 0 : 0;
-    const note = l ? l.note || '' : '';
-    const k = g.id;
-    h += `<li class="goal-row" style="--g:var(--g${gc(g)})">
-      <div class="thread"></div>
-      <div><div class="gr-name">${esc(g.name)}</div>${g.bet ? `<div class="gr-bet">Bet: ${esc(g.bet)}</div>` : `<div class="gr-bet muted">No current bet. <a href="#goals" data-act="open-goal" data-setbet="1" data-id="${esc(g.id)}">Set one</a></div>`}</div>
-      <div class="gr-val ${amt ? '' : 'zero'}">${esc(fmtAmt(g, amt))}</div>
-      <div class="gr-ctl">`;
-    if (g.unit === 'minutes') {
-      if (editAmt === g.id) {
-        h += `<label class="sr" for="amt-${esc(k)}">Minutes</label><input class="amt-input" id="amt-${esc(k)}" type="number" inputmode="numeric" min="0" step="5" value="${amt}" data-act-input="amt" data-id="${esc(g.id)}" data-autofocus data-key="amt-${esc(k)}">
-          <button class="chip" data-act="amt-done" data-id="${esc(g.id)}" data-key="amtdone-${esc(k)}">Done</button>`;
-      } else {
-        for (const v of [15, 30, 60]) h += `<button class="chip" data-act="add" data-v="${v}" data-id="${esc(g.id)}" data-key="add${v}-${esc(k)}">+${v}</button>`;
-        h += `<button class="chip text" data-act="amt-edit" data-id="${esc(g.id)}" data-key="edit-${esc(k)}">Edit</button>`;
-      }
-    } else if (g.unit === 'count') {
-      h += `<button class="chip" data-act="add" data-v="-1" data-id="${esc(g.id)}" aria-label="One less" ${amt ? '' : 'disabled'} data-key="dec-${esc(k)}">−</button>
-        <button class="chip" data-act="add" data-v="1" data-id="${esc(g.id)}" aria-label="One more" data-key="inc-${esc(k)}">+1</button>`;
-    } else if (g.unit === 'once') {
-      const doneHere = g.completedOn === dayView;
-      h += doneHere
-        ? `<button class="chip on" data-act="uncomplete" data-id="${esc(g.id)}" aria-pressed="true" data-key="cmp-${esc(k)}">Completed ✓</button><span class="small muted">Tap to undo</span>`
-        : `<button class="chip" data-act="complete" data-id="${esc(g.id)}" data-key="cmp-${esc(k)}">Mark complete</button>`;
-    } else {
-      h += `<button class="chip ${amt ? 'on' : ''}" data-act="toggle" data-id="${esc(g.id)}" aria-pressed="${amt ? 'true' : 'false'}" data-key="tog-${esc(k)}">${amt ? 'Done ✓' : 'Mark done'}</button>`;
-    }
-    const noteOpen = openNotes.has(g.id);
-    h += `<button class="chip text" data-act="note" data-id="${esc(g.id)}" aria-expanded="${noteOpen}" data-key="note-${esc(k)}">${note ? 'Edit note' : 'Add note'}</button></div>`;
-    if (noteOpen) h += `<div class="gr-note"><label class="sr" for="n-${esc(k)}">Note for ${esc(g.name)}</label><textarea id="n-${esc(k)}" data-act-input="note" data-id="${esc(g.id)}" placeholder="What did you do? Ctrl+Enter to save." data-autofocus data-key="n-${esc(k)}">${esc(note)}</textarea></div>`;
-    else if (note) h += `<div class="gr-note"><p class="saved-note">${esc(note)}</p></div>`;
-    h += '</li>';
-  }
+  for (const g of checkGoals) h += checkinRow(g);
   h += '</ul>';
   if (!syncReady()) h += syncHint();
+  return h;
+}
+function checkinRow(g) {
+  let h = '';
+  const l = getLog(dayView, g.id);
+  const amt = l ? l.amount || 0 : 0;
+  const note = l ? l.note || '' : '';
+  const k = g.id;
+  h += `<li class="goal-row" style="--g:var(--g${gc(g)})">
+    <div class="thread"></div>
+    <div><div class="gr-name">${esc(g.name)}</div>${g.bet ? `<div class="gr-bet">Bet: ${esc(g.bet)}</div>` : `<div class="gr-bet muted">No current bet. <a href="#goals" data-act="open-goal" data-setbet="1" data-id="${esc(g.id)}">Set one</a></div>`}</div>
+    <div class="gr-val ${amt ? '' : 'zero'}">${esc(fmtAmt(g, amt))}</div>
+    <div class="gr-ctl">`;
+  if (g.unit === 'minutes') {
+    if (editAmt === g.id) {
+      h += `<label class="sr" for="amt-${esc(k)}">Minutes</label><input class="amt-input" id="amt-${esc(k)}" type="number" inputmode="numeric" min="0" step="5" value="${amt}" data-act-input="amt" data-id="${esc(g.id)}" data-autofocus data-key="amt-${esc(k)}">
+        <button class="chip" data-act="amt-done" data-id="${esc(g.id)}" data-key="amtdone-${esc(k)}">Done</button>`;
+    } else {
+      for (const v of [15, 30, 60]) h += `<button class="chip" data-act="add" data-v="${v}" data-id="${esc(g.id)}" data-key="add${v}-${esc(k)}">+${v}</button>`;
+      h += `<button class="chip text" data-act="amt-edit" data-id="${esc(g.id)}" data-key="edit-${esc(k)}">Edit</button>`;
+    }
+  } else if (g.unit === 'count') {
+    h += `<button class="chip" data-act="add" data-v="-1" data-id="${esc(g.id)}" aria-label="One less" ${amt ? '' : 'disabled'} data-key="dec-${esc(k)}">−</button>
+      <button class="chip" data-act="add" data-v="1" data-id="${esc(g.id)}" aria-label="One more" data-key="inc-${esc(k)}">+1</button>`;
+  } else if (g.unit === 'once') {
+    const doneHere = g.completedOn === dayView;
+    h += doneHere
+      ? `<button class="chip on" data-act="uncomplete" data-id="${esc(g.id)}" aria-pressed="true" data-key="cmp-${esc(k)}">Completed ✓</button><span class="small muted">Tap to undo</span>`
+      : `<button class="chip" data-act="complete" data-id="${esc(g.id)}" data-key="cmp-${esc(k)}">Mark complete</button>`;
+  } else {
+    h += `<button class="chip ${amt ? 'on' : ''}" data-act="toggle" data-id="${esc(g.id)}" aria-pressed="${amt ? 'true' : 'false'}" data-key="tog-${esc(k)}">${amt ? 'Done ✓' : 'Mark done'}</button>`;
+  }
+  const noteOpen = openNotes.has(g.id);
+  h += `<button class="chip text" data-act="note" data-id="${esc(g.id)}" aria-expanded="${noteOpen}" data-key="note-${esc(k)}">${note ? 'Edit note' : 'Add note'}</button></div>`;
+  if (noteOpen) h += `<div class="gr-note"><label class="sr" for="n-${esc(k)}">Note for ${esc(g.name)}</label><textarea id="n-${esc(k)}" data-act-input="note" data-id="${esc(g.id)}" placeholder="What did you do? Ctrl+Enter to save." data-autofocus data-key="n-${esc(k)}">${esc(note)}</textarea></div>`;
+  else if (note) h += `<div class="gr-note"><p class="saved-note">${esc(note)}</p></div>`;
+  h += '</li>';
   return h;
 }
 function syncHint() {
@@ -1504,7 +1592,7 @@ function goalFormHTML(g) {
   const unit = g ? g.unit : 'minutes';
   const hz = g ? g.horizon : 'long';
   return `<form data-form="goal" data-id="${g ? esc(g.id) : ''}">
-    <label class="f"><span>Goal</span><input type="text" name="name" required maxlength="60" value="${g ? esc(g.name) : ''}" placeholder="Finish the novel draft" data-autofocus></label>
+    <label class="f"><span>Goal</span><input type="text" name="name" required maxlength="60" value="${g ? esc(g.name) : esc(newGoalName)}" placeholder="Finish the novel draft" data-autofocus></label>
     <div class="f" style="margin-bottom:14px"><span style="display:block;font-weight:700;font-size:15px;margin-bottom:5px">Horizon</span>
       <div class="seg" role="radiogroup" aria-label="Horizon">
         <label><input type="radio" name="horizon" value="short" ${hz === 'short' ? 'checked' : ''}><span>Short term</span></label>
@@ -1712,7 +1800,7 @@ document.addEventListener('click', e => {
       break;
     }
     case 'new-goal': goalForm = 'new'; openGoal = null; if (view !== 'goals') location.hash = '#goals'; else render(); window.scrollTo(0, 0); break;
-    case 'goal-cancel': goalForm = null; render(); break;
+    case 'goal-cancel': goalForm = null; newGoalName = ''; render(); break;
     case 'open-goal':
       e.preventDefault(); openGoal = id; goalForm = null; linkError = null;
       betForm = t.dataset.setbet ? { goalId: id, outcome: 'edit' } : null;
@@ -1735,6 +1823,8 @@ document.addEventListener('click', e => {
     case 'sugg-dismiss': put('dismissed', { id: t.dataset.pair }); break;
     case 'tidy-one': { const l = state.links[t.dataset.link]; if (l && !l.deleted) remove('links', l.id); break; }
     case 'tidy-all': tidyImplied(); break;
+    case 'qlog-clear': e.preventDefault(); todayQuery = ''; render(); { const el = $('#qlog'); if (el) el.focus(); } break;
+    case 'qlog-new': newGoalName = todayQuery.trim(); todayQuery = ''; goalForm = 'new'; openGoal = null; location.hash = '#goals'; break;
     case 'sugg-ask': e.preventDefault(); dispatchSuggest(id); break;
     case 'sugg-all': dispatchSuggest('all'); renderSettings(); break;
     case 'unlink': { const l = state.links[t.dataset.link]; linkError = null; if (l && !l.deleted) remove('links', l.id); break; }
@@ -1797,7 +1887,7 @@ document.addEventListener('submit', async e => {
     if (fd.get('color') === 'auto') { rec.colorMode = 'auto'; rec.color = rec.color || nextFreeColor(rec.id); }
     else { rec.colorMode = 'manual'; rec.color = Number(fd.get('color')) || 1; }
     if (!existing) { rec.bet = (fd.get('bet') || '').trim(); rec.betSince = today(); requestSuggestions(rec.id); }
-    goalForm = null; openGoal = existing ? existing.id : null;
+    goalForm = null; newGoalName = ''; openGoal = existing ? existing.id : null;
     put('goals', rec);
     // sync "part of" links with the picker
     const want = new Set(fd.getAll('parents'));
@@ -1854,6 +1944,12 @@ document.addEventListener('input', e => {
   if (!t) return;
   const a = t.dataset.actInput;
   if (a === 'note') { const gid = t.dataset.id, date = dayView, v = t.value; debounce('note' + gid, () => setNote(gid, date, v), 700); }
+  if (a === 'qlog') {
+    todayQuery = t.value;
+    const pos = t.selectionStart;
+    render();
+    const el = $('#qlog'); if (el) { el.focus({ preventScroll: true }); el.setSelectionRange(pos, pos); }
+  }
   if (a === 'review') {
     const f = t.closest('form'); const wk = f.dataset.week;
     const flag = $('#savedFlag'); if (flag) flag.textContent = '';
@@ -1868,6 +1964,17 @@ document.addEventListener('input', e => {
 document.addEventListener('keydown', e => {
   const t = e.target;
   if (t.dataset && t.dataset.actInput === 'amt' && e.key === 'Enter') { e.preventDefault(); const b = $(`[data-act="amt-done"][data-id="${CSS.escape(t.dataset.id)}"]`); if (b) b.click(); }
+  if (t.id === 'qlog') {
+    if (e.key === 'Escape') { e.preventDefault(); todayQuery = ''; render(); const el = $('#qlog'); if (el) el.focus(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); const b = $('.checkin .gr-ctl button'); if (b) b.focus(); return; }
+  }
+  // "/" jumps to the quick-log box from anywhere (unless you're typing)
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) && !t.isContentEditable && !$('#settings').open) {
+    e.preventDefault();
+    const go = () => { const el = $('#qlog'); if (el) { el.focus(); el.select(); } };
+    if (view !== 'today') { location.hash = '#today'; setTimeout(go, 0); } else go();
+    return;
+  }
   // Ctrl+Enter (Cmd+Enter on a Mac) saves a check-in note and closes it
   if (t.dataset && t.dataset.actInput === 'note' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
