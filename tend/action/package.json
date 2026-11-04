@@ -1,0 +1,9 @@
+{
+  "name": "tend-sender",
+  "private": true,
+  "type": "module",
+  "description": "Sends Tend's push notifications from a GitHub Action.",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}

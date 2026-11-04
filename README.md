@@ -35,3 +35,13 @@ To add it to your phone's home screen: open the link in Safari or Chrome, then S
 ## Files
 
 Everything is in `index.html` (no build step). `manifest.webmanifest` and the icons are for the home-screen install.
+
+# Tend
+
+A second, separate experiment at **https://aespitzer.github.io/goal-tracker/tend/**: instead of a checklist you open, Tend sends a few notifications a day and asks one question at a time.
+
+- **Habits** get "When did you last do this?" (fixed day ranges), plus "How do you feel about how often you're doing it?" when the answer is off target, and now and then "Do you do this without having to remember to?". Steady answers stretch the gap to the next check-in (up to six weeks); slipping shrinks it. Each answer is treated as an interval-censored observation of the gap since your last session, which gives a per-habit rate estimate and a "needs the most help" ranking.
+- **Reminders** get a slider: a few hours, within a day, days, a week, weeks, a month, months, a year, five years. Or Done / Remove.
+- **Timing** is learned: each day it picks send times by Thompson sampling over how quickly you've answered at each hour, tries grouped vs one-at-a-time, and adds an extra ping about one day in five. Answering those quickly raises the daily number; ignoring pings lowers it.
+
+Notifications come from a scheduled GitHub Action in the private data repo (`.github/workflows/tend.yml`), which runs `tend/action/run.mjs` from this repo. Data lives in `tend.json` (written by the app) and `tend-sent.json` (written by the sender). On iPhone, notifications only work after Add to Home Screen.

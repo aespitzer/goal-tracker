@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tend</title>
+<meta name="description" content="Occasional check-ins on habits and reminders, timed to when you actually answer.">
+<meta name="theme-color" content="#EDF0EA" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1612" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tend">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --plane: #EDF0EA; --surface: #F9FAF7; --ink: #1B2A21; --ink-2: #46564B; --muted: #63736A;
+  --hair: #D3DBD2; --base: #AEBBB1; --accent: #2D6A48; --accent-ink: #FFFFFF; --accent-wash: #DAE8DE;
+  --warn-ink: #8A4B0F; --err-ink: #A3261D; --shadow: 0 10px 30px rgba(27,42,33,.16);
+  --display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", ui-sans-serif, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --plane: #0F1612; --surface: #17201A; --ink: #E3EBE5; --ink-2: #B3C1B7; --muted: #879589;
+    --hair: #26322A; --base: #3A4A3F; --accent: #8CCBA2; --accent-ink: #0D1A12; --accent-wash: #1F3326;
+    --warn-ink: #E7B07A; --err-ink: #FF8A80; --shadow: 0 10px 30px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane: #0F1612; --surface: #17201A; --ink: #E3EBE5; --ink-2: #B3C1B7; --muted: #879589;
+  --hair: #26322A; --base: #3A4A3F; --accent: #8CCBA2; --accent-ink: #0D1A12; --accent-wash: #1F3326;
+  --warn-ink: #E7B07A; --err-ink: #FF8A80; --shadow: 0 10px 30px rgba(0,0,0,.5);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--plane); color: var(--ink); font: 400 17px/1.5 var(--body);
+  min-height: 100dvh; padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  -webkit-tap-highlight-color: transparent;
+}
+body.focus { padding-bottom: env(safe-area-inset-bottom); }
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.muted { color: var(--muted); } .ink2 { color: var(--ink-2); } .small { font-size: 15px; }
+.err { color: var(--err-ink); }
+
+.top { position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top);
+  background: color-mix(in srgb, var(--plane) 90%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.top-in { max-width: 560px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+.brand { font: 750 24px/1 var(--display); letter-spacing: -0.03em; margin-right: auto; display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); }
+.brand svg { width: 26px; height: 26px; }
+.sync { border: 0; background: none; color: var(--muted); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; padding: 6px; cursor: pointer; }
+.sync i { width: 8px; height: 8px; border-radius: 50%; background: var(--base); }
+.sync[data-s="ok"] i { background: #3BA16A; } .sync[data-s="busy"] i { background: #D19A1E; } .sync[data-s="error"] i { background: #D0453B; }
+.icon-btn { width: 44px; height: 44px; border: 0; background: none; border-radius: 12px; display: grid; place-items: center; color: var(--ink-2); cursor: pointer; }
+.icon-btn:hover { background: var(--accent-wash); }
+.icon-btn svg { width: 22px; height: 22px; }
+
+main { max-width: 560px; margin: 0 auto; padding: 8px 16px 28px; }
+h1 { font: 750 clamp(32px, 9vw, 42px)/1.05 var(--display); letter-spacing: -0.03em; margin: 10px 0 16px; }
+h2 { font: 700 22px/1.2 var(--display); letter-spacing: -0.015em; margin: 30px 0 10px; }
+h3 { font: 700 17px/1.3 var(--display); margin: 22px 0 8px; }
+p { margin: 0 0 12px; }
+
+.bottom { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--hair);
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); }
+.bottom-in { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; }
+.bottom a { text-align: center; text-decoration: none; color: var(--ink-2); font-weight: 700; font-size: 15px; padding: 10px 6px; border-radius: 12px; }
+.bottom a[aria-current="page"] { color: var(--ink); background: var(--accent-wash); }
+.bottom .add { background: var(--accent); color: var(--accent-ink); padding: 11px 22px; border-radius: 999px; }
+body.focus .bottom { display: none; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border-radius: 14px;
+  border: 1.5px solid var(--base); background: var(--surface); font-weight: 700; font-size: 16px; cursor: pointer; text-decoration: none; color: var(--ink); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.quiet { border-color: transparent; background: none; color: var(--accent); padding: 0 10px; }
+.btn.danger { color: var(--err-ink); }
+.btn.wide { width: 100%; }
+.btn[disabled] { opacity: .45; cursor: default; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+label.f { display: block; margin: 0 0 16px; }
+label.f > span, .flabel { display: block; font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+label.f > small, .fhint { display: block; color: var(--muted); font-size: 14px; margin-top: 5px; }
+input[type=text], input[type=password], input[type=number], textarea, select {
+  width: 100%; border: 1.5px solid var(--base); border-radius: 12px; background: var(--surface); padding: 11px 13px; font-size: 17px; min-height: 48px; }
+textarea { resize: vertical; min-height: 64px; line-height: 1.4; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-wash); }
+
+/* option rows: the main way to answer */
+.opts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.opt { width: 100%; text-align: left; min-height: 54px; padding: 12px 16px; border-radius: 14px; border: 1.5px solid var(--hair);
+  background: var(--surface); font-size: 18px; font-weight: 700; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.opt:hover { border-color: var(--base); }
+.opt:active { transform: scale(.99); }
+.opt small { font-weight: 400; color: var(--muted); font-size: 14px; }
+.opt[aria-pressed="true"], .opt.sel { border-color: var(--accent); background: var(--accent-wash); }
+.radios { display: grid; gap: 8px; margin: 0 0 16px; }
+.radios label { position: relative; }
+.radios input { position: absolute; opacity: 0; inset: 0; }
+.radios span { display: flex; justify-content: space-between; gap: 10px; padding: 11px 14px; border: 1.5px solid var(--hair); border-radius: 12px; background: var(--surface); font-weight: 700; cursor: pointer; }
+.radios span small { font-weight: 400; color: var(--muted); }
+.radios input:checked + span { border-color: var(--accent); background: var(--accent-wash); }
+.radios input:focus-visible + span { outline: 2.5px solid var(--accent); outline-offset: 2px; }
+
+/* check-in card */
+.check-top { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; color: var(--muted); font-size: 15px; }
+.check-top .grow { flex: 1; }
+.kicker { color: var(--ink-2); font-size: 15px; margin: 18px 0 4px; }
+.item-title { font: 750 clamp(30px, 9vw, 40px)/1.08 var(--display); letter-spacing: -0.025em; margin: 0 0 22px; overflow-wrap: anywhere; }
+.q { font: 700 20px/1.3 var(--display); margin: 0 0 12px; }
+.q-sub { color: var(--ink-2); margin: -6px 0 14px; font-size: 16px; }
+.step-in { animation: rise .25s ease-out; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .step-in { animation: none; } }
+.skip { display: block; margin: 18px auto 0; }
+
+/* the reminder slider */
+.when { font: 750 34px/1.1 var(--display); letter-spacing: -0.02em; margin: 2px 0 14px; min-height: 38px; }
+.slider { position: relative; padding: 6px 0 4px; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; background: transparent; margin: 0; touch-action: pan-y; }
+input[type=range]::-webkit-slider-runnable-track { height: 10px; border-radius: 5px; background: linear-gradient(to right, var(--accent) 0 var(--fill), var(--hair) var(--fill) 100%); }
+input[type=range]::-moz-range-track { height: 10px; border-radius: 5px; background: var(--hair); }
+input[type=range]::-moz-range-progress { height: 10px; border-radius: 5px; background: var(--accent); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 34px; height: 34px; border-radius: 50%; background: var(--surface); border: 3px solid var(--accent); margin-top: -12px; box-shadow: 0 2px 6px rgba(0,0,0,.18); }
+input[type=range]::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: var(--surface); border: 3px solid var(--accent); }
+.ticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin: 0 4px 18px; font-variant-numeric: tabular-nums; }
+.ticks span { width: 0; display: flex; justify-content: center; white-space: nowrap; }
+.after { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+
+/* home list */
+.ready { background: var(--accent); color: var(--accent-ink); border-radius: 18px; padding: 16px 18px; display: flex; align-items: center; gap: 14px; margin: 6px 0 18px; }
+.ready b { font: 750 34px/1 var(--display); }
+.ready span { flex: 1; font-size: 16px; line-height: 1.3; }
+.ready .btn { background: var(--accent-ink); color: var(--accent); border-color: var(--accent-ink); }
+.seg { display: flex; gap: 6px; overflow-x: auto; margin: 0 -16px 12px; padding: 0 16px 4px; scrollbar-width: none; }
+.seg button { flex: none; border: 1.5px solid var(--hair); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-weight: 700; font-size: 15px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--plane); border-color: var(--ink); }
+.list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--hair); }
+.list li a { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 13px 2px; border-bottom: 1px solid var(--hair); text-decoration: none; color: var(--ink); }
+.list .t { font-weight: 700; overflow-wrap: anywhere; }
+.list .m { color: var(--ink-2); font-size: 15px; grid-column: 1; }
+.list .r { grid-row: 1 / span 2; grid-column: 2; align-self: center; text-align: right; font-size: 14px; color: var(--muted); white-space: nowrap; }
+.tag-behind { color: var(--warn-ink); font-weight: 700; }
+.empty p { color: var(--ink-2); max-width: 44ch; }
+
+/* insights */
+.chart-box { background: var(--surface); border: 1px solid var(--hair); border-radius: 14px; padding: 14px 14px 10px; }
+.chart { display: block; overflow: visible; }
+.chart text { fill: var(--muted); font: 400 12px var(--body); }
+.chart .lbl { fill: var(--ink); font: 700 14px var(--body); }
+.chart .grid { stroke: var(--hair); stroke-width: 1; }
+.chart .axis { stroke: var(--base); stroke-width: 1; }
+.chart .range { stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; }
+.chart .dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.chart .target { stroke: var(--ink); stroke-width: 2; }
+.chart .bar { fill: var(--accent); }
+.chart .bar-untried { fill: none; stroke: var(--base); stroke-dasharray: 3 3; }
+.legend-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 6px; }
+.legend-row svg { vertical-align: -2px; margin-right: 4px; }
+.facts { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--hair); }
+.facts li { padding: 11px 0; border-bottom: 1px solid var(--hair); }
+.facts b { display: block; }
+.status-box { border-left: 3px solid var(--accent); background: var(--accent-wash); padding: 10px 14px; border-radius: 0 12px 12px 0; margin: 8px 0 16px; font-size: 15px; }
+.status-box.bad { border-color: var(--err-ink); }
+
+/* item detail */
+.hist { list-style: none; padding: 0; margin: 0; }
+.hist li { padding: 8px 0; border-bottom: 1px solid var(--hair); font-size: 15px; display: flex; justify-content: space-between; gap: 12px; }
+.hist li span:last-child { color: var(--muted); white-space: nowrap; }
+
+/* settings */
+.panel { background: var(--surface); border: 1px solid var(--hair); border-radius: 16px; padding: 16px; margin: 10px 0 18px; }
+.panel h3:first-child { margin-top: 0; }
+.steps { padding-left: 22px; margin: 0 0 12px; color: var(--ink-2); font-size: 15px; }
+.steps li { margin-bottom: 6px; }
+.keybox { font-family: ui-monospace, Menlo, monospace; font-size: 14px; word-break: break-all; background: var(--plane); border: 1px solid var(--hair); border-radius: 10px; padding: 10px; margin: 8px 0; user-select: all; -webkit-user-select: all; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check-line { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border: 1.5px solid var(--hair); border-radius: 12px; background: var(--surface); font-weight: 700; margin: 0 0 16px; cursor: pointer; }
+.check-line input { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+.check-line small { display: block; font-weight: 400; color: var(--muted); }
+
+#toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px); opacity: 0; pointer-events: none;
+  background: var(--ink); color: var(--plane); border-radius: 14px; padding: 12px 16px; display: flex; gap: 14px; align-items: center; box-shadow: var(--shadow);
+  max-width: calc(100% - 32px); width: max-content; font-size: 15px; transition: opacity .2s, transform .2s; z-index: 40; }
+body.focus #toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
+#toast.show { opacity: 1; transform: translateX(-50%); pointer-events: auto; }
+#toast button { border: 0; background: none; color: var(--plane); font-weight: 700; text-decoration: underline; cursor: pointer; padding: 4px; }
+#tip { position: fixed; z-index: 50; pointer-events: none; background: var(--ink); color: var(--plane); border-radius: 8px; padding: 7px 10px; font-size: 14px; opacity: 0; max-width: 240px; }
+#tip.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#home" aria-label="Tend, home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M16 26V14" stroke="var(--accent-ink)" stroke-width="2.6" stroke-linecap="round"/><path d="M16 17c0-4.5-3.2-7-7.5-7 0 4.5 3.2 7 7.5 7Z" fill="var(--accent-ink)"/><path d="M16 14.5c0-4 2.8-6.5 6.8-6.5 0 4-2.8 6.5-6.8 6.5Z" fill="var(--accent-ink)"/></svg>
+      Tend
+    </a>
+    <button class="sync" id="syncBtn" data-s="off" data-act="go" data-to="settings"><i></i><span>Not connected</span></button>
+    <button class="icon-btn" data-act="go" data-to="settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="app" tabindex="-1"></main>
+
+<nav class="bottom" aria-label="Sections">
+  <div class="bottom-in">
+    <a href="#home">Items</a>
+    <a href="#add" class="add">+ Add</a>
+    <a href="#insights">Insights</a>
+  </div>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="tip" role="tooltip"></div>
+
+<script type="module">
+import * as M from './model.js';
+
+/* ================= basics ================= */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function readLS(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } }
+function writeLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+function stable(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+  return '{' + Object.keys(v).sort().filter(k => v[k] !== undefined).map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}';
+}
+
+const LS_STATE = 'tend.state.v1', LS_CFG = 'tend.cfg.v1', LS_SENT = 'tend.sent.v1';
+let state = M.normalizeTend(readLS(LS_STATE, null));
+let sent = M.normalizeSent(readLS(LS_SENT, null));
+let cfg = Object.assign({ owner: '', repo: 'goal-tracker-data', token: '', deviceId: '', lastSync: 0, lastChange: 0 }, readLS(LS_CFG, {}));
+if (!cfg.deviceId) cfg.deviceId = 'd' + Math.random().toString(36).slice(2, 10);
+// Reuse Stitch's GitHub connection when it's saved in this browser.
+if (!cfg.token) {
+  const sc = readLS('stitch.cfg.v1', null);
+  if (sc && sc.token && sc.owner) { cfg.owner = sc.owner; cfg.repo = sc.repo || 'goal-tracker-data'; cfg.token = sc.token; }
+}
+const saveCfg = () => writeLS(LS_CFG, cfg);
+saveCfg();
+const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago';
+if (!state.settings.updatedAt) state.settings.tz = deviceTz;
+const S = () => ({ ...M.DEFAULT_SETTINGS, ...state.settings });
+
+const live = col => Object.values(state[col] || {}).filter(r => r && !r.deleted);
+const itemById = id => { const i = state.items[id]; return i && !i.deleted ? i : null; };
+function put(col, rec) { rec.updatedAt = Date.now(); state[col][rec.id] = rec; changed(); }
+function setSettings(patch) { state.settings = { ...state.settings, ...patch, updatedAt: Date.now() }; changed(); }
+function changed() { cfg.lastChange = Date.now(); saveCfg(); writeLS(LS_STATE, state); scheduleSync(1500); requestRender(); }
+
+function pick(a, b) {
+  if (!a) return b; if (!b) return a;
+  const ua = a.updatedAt || 0, ub = b.updatedAt || 0;
+  if (ua !== ub) return ub > ua ? b : a;
+  return stable(a) <= stable(b) ? a : b;
+}
+function merge(a, b) {
+  a = M.normalizeTend(a); b = M.normalizeTend(b);
+  const out = M.emptyTend();
+  for (const c of M.COLS) for (const k of new Set([...Object.keys(a[c]), ...Object.keys(b[c])])) out[c][k] = pick(a[c][k], b[c][k]);
+  out.settings = (b.settings.updatedAt || 0) > (a.settings.updatedAt || 0) ? b.settings : a.settings;
+  return out;
+}
+
+/* ================= GitHub sync ================= */
+const syncReady = () => !!(cfg.token && cfg.owner && cfg.repo);
+const ghHeaders = () => ({ Authorization: `Bearer ${cfg.token.trim()}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' });
+const repoUrl = () => `https://api.github.com/repos/${encodeURIComponent(cfg.owner.trim())}/${encodeURIComponent(cfg.repo.trim())}`;
+const b64enc = str => { const bytes = new TextEncoder().encode(str); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+const b64dec = b64 => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), c => c.charCodeAt(0)));
+class SyncError extends Error {}
+async function ghMsg(r) { try { return (await r.json()).message || ''; } catch { return ''; } }
+async function ghGet(path) {
+  const r = await fetch(`${repoUrl()}/contents/${path}`, { headers: ghHeaders(), cache: 'no-store' });
+  if (r.status === 404) {
+    const rr = await fetch(repoUrl(), { headers: ghHeaders(), cache: 'no-store' });
+    if (rr.status === 404) throw new SyncError(`Can't see ${cfg.owner}/${cfg.repo}. Check the name, and that your token has access to it.`);
+    if (rr.status === 401) throw new SyncError('GitHub rejected the token. Paste a new one in Settings.');
+    return null;
+  }
+  if (r.status === 401) throw new SyncError('GitHub rejected the token. Paste a new one in Settings.');
+  if (!r.ok) throw new SyncError(`GitHub returned ${r.status}: ${await ghMsg(r)}`);
+  const j = await r.json();
+  let text = j.content ? b64dec(j.content) : null;
+  if (text === null) { const raw = await fetch(`${repoUrl()}/contents/${path}`, { headers: { ...ghHeaders(), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store' }); text = await raw.text(); }
+  return { sha: j.sha, text };
+}
+async function ghPut(path, text, sha) {
+  const body = { message: `Tend: update from ${cfg.deviceId}`, content: b64enc(text) };
+  if (sha) body.sha = sha;
+  const r = await fetch(`${repoUrl()}/contents/${path}`, { method: 'PUT', headers: { ...ghHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.ok) return true;
+  const msg = await ghMsg(r);
+  if (r.status === 409 || (r.status === 422 && /sha/i.test(msg))) return false;
+  if (r.status === 403 || r.status === 404) throw new SyncError('Your token can read the data repo but not write to it. Give it "Contents: Read and write".');
+  throw new SyncError(`GitHub returned ${r.status}: ${msg}`);
+}
+let syncing = false, again = false, timer = null, syncState = 'off', syncMsg = '';
+function setSync(st, msg = '') {
+  syncState = st; syncMsg = msg;
+  const b = $('#syncBtn'); b.dataset.s = st;
+  b.querySelector('span').textContent = { off: 'Not connected', busy: 'Syncing', ok: 'Synced', error: 'Sync problem', offline: 'Offline' }[st] || st;
+  b.title = msg || '';
+  const el = $('#syncStatus'); if (el) { el.textContent = syncText(); el.className = 'small ' + (st === 'error' ? 'err' : 'muted'); }
+}
+function syncText() {
+  if (!syncReady()) return 'Not connected. Everything stays on this device until you connect.';
+  if (syncState === 'error') return syncMsg;
+  if (syncState === 'offline') return 'Offline. Changes are saved here and will sync later.';
+  return cfg.lastSync ? `Last synced ${new Date(cfg.lastSync).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Connected.';
+}
+function scheduleSync(ms = 0) {
+  if (!syncReady()) { setSync('off'); return; }
+  clearTimeout(timer); timer = setTimeout(syncNow, ms);
+}
+async function syncNow() {
+  if (!syncReady()) return setSync('off');
+  if (!navigator.onLine) return setSync('offline');
+  if (syncing) { again = true; return; }
+  syncing = true; again = false; setSync('busy');
+  try {
+    let done = false;
+    for (let i = 0; i < 4 && !done; i++) {
+      const remote = await ghGet('tend.json');
+      let rdata = null;
+      if (remote) { try { rdata = JSON.parse(remote.text); } catch { throw new SyncError('tend.json in your data repo isn\'t valid JSON.'); } }
+      const merged = rdata ? merge(state, rdata) : state;
+      if (stable(merged) !== stable(state)) { state = merged; writeLS(LS_STATE, state); requestRender(); }
+      if (rdata && stable(merged) === stable(M.normalizeTend(rdata))) { done = true; break; }
+      done = await ghPut('tend.json', JSON.stringify(merged, null, 1), remote && remote.sha);
+    }
+    if (!done) throw new SyncError('Couldn\'t save after several tries. Try again in a minute.');
+    try {
+      const s = await ghGet('tend-sent.json');
+      if (s) { const nx = M.normalizeSent(JSON.parse(s.text)); if (stable(nx) !== stable(sent)) { sent = nx; writeLS(LS_SENT, sent); requestRender(); } }
+    } catch {}
+    // First connection on a fresh data file: record this device's time zone.
+    if (!state.settings.updatedAt) setSettings({ tz: deviceTz });
+    cfg.lastSync = Date.now(); saveCfg(); setSync('ok');
+  } catch (e) {
+    if (e instanceof SyncError) setSync('error', e.message);
+    else setSync(navigator.onLine ? 'error' : 'offline', `Couldn't reach GitHub (${e.message}).`);
+  } finally { syncing = false; if (again) scheduleSync(400); }
+}
+async function dispatchTest() {
+  const r = await fetch(`${repoUrl()}/actions/workflows/tend.yml/dispatches`, {
+    method: 'POST', headers: { ...ghHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: 'main', inputs: { mode: 'test' } }) });
+  if (r.status === 204 || r.ok) return null;
+  if (r.status === 404 || r.status === 403) return 'GitHub wouldn\'t start the test. Check your token has "Actions: Read and write" and the data repo has the Tend workflow.';
+  return `GitHub returned ${r.status}: ${await ghMsg(r)}`;
+}
+
+/* ================= notifications on this device ================= */
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+let swReg = null;
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js', { scope: './' }).then(r => { swReg = r; }).catch(() => {});
+  navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'open') openFromUrl(e.data.url); });
+}
+const b64u = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64u = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
+let pendingKeys = null;
+async function makeKeys() {
+  const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const pub = b64u(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const priv = (await crypto.subtle.exportKey('jwk', kp.privateKey)).d;
+  pendingKeys = { pub, priv };
+}
+function thisDevice() { const d = state.devices[cfg.deviceId]; return d && !d.deleted ? d : null; }
+async function enablePush() {
+  // On iPhone the permission prompt has to come straight from the tap.
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error(perm === 'denied' ? 'Notifications are blocked for Tend. Turn them on in iPhone Settings → Notifications → Tend.' : 'Notifications weren\'t allowed.');
+  const reg = swReg || await navigator.serviceWorker.ready;
+  const old = await reg.pushManager.getSubscription();
+  if (old) await old.unsubscribe().catch(() => {});
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: unb64u(S().vapidPublic) });
+  const j = sub.toJSON();
+  const name = isIOS ? 'iPhone' : (navigator.userAgentData?.platform || 'This device');
+  put('devices', { id: cfg.deviceId, endpoint: j.endpoint, keys: j.keys, vapid: S().vapidPublic, name, createdAt: Date.now() });
+}
+async function disablePush() {
+  try { const reg = swReg || await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe(); } catch {}
+  const d = thisDevice(); if (d) put('devices', { id: d.id, deleted: true });
+}
+
+/* ================= UI state ================= */
+let view = 'home', param = '';
+let queue = [], qi = 0, card = null;   // check-in flow
+let filter = { kind: 'all', list: 'all', finished: false };
+let addKind = null, bulk = false, linkError = '';
+let pendingRender = false;
+function editing() { const a = document.activeElement; return a && $('#app').contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && ['text', 'password', 'number'].includes(a.type))); }
+function requestRender() { if (editing()) { pendingRender = true; return; } render(); }
+document.addEventListener('focusout', () => setTimeout(() => { if (pendingRender && !editing()) { pendingRender = false; render(); } }, 0));
+
+let toastTimer = null, toastUndo = null;
+function toast(msg, undo) {
+  const t = $('#toast');
+  toastUndo = undo || null;
+  t.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button data-act="undo">Undo</button>' : ''}`;
+  t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), undo ? 6000 : 3200);
+}
+
+const now = () => Date.now();
+const fmtDay = ms => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(Math.abs(ms - now()) > 300 * M.DAY ? { year: 'numeric' } : {}) });
+function relWhen(ms) {
+  const d = ms - now();
+  if (d <= 0) return 'Now';
+  if (d < 20 * M.HOUR) return 'Later today';
+  if (d < 1.5 * M.DAY) return 'Tomorrow';
+  return fmtDay(ms);
+}
+const lists = () => [...new Set(['Desires', 'Problems', ...live('items').map(i => i.list).filter(Boolean)])];
+const answersOf = id => live('answers').filter(a => a.itemId === id).sort((a, b) => b.at - a.at);
+
+/* ================= routing ================= */
+function route() {
+  const h = (location.hash || '#home').slice(1);
+  const [v, p] = h.split('/');
+  view = ['home', 'check', 'add', 'insights', 'settings', 'item'].includes(v) ? v : 'home';
+  param = p ? decodeURIComponent(p) : '';
+  if (view === 'check' && !queue.length) startQueue(dueQueue());
+  if (view !== 'add') { addKind = null; bulk = false; }
+  render();
+  window.scrollTo(0, 0);
+}
+window.addEventListener('hashchange', route);
+function go(v) { if (location.hash === '#' + v) route(); else location.hash = '#' + v; }
+
+function dueQueue() {
+  const t = now();
+  return M.dueItems(state, t).map(i => ({ i, p: M.priority(i, state, t) })).sort((a, b) => b.p - a.p).map(x => x.i.id);
+}
+let currentNid = null;
+function startQueue(ids, nid = null) { queue = ids.filter(id => itemById(id) && (itemById(id).status || 'active') === 'active'); qi = 0; card = null; currentNid = nid; }
+
+// Opened from a notification: record when, then show its items.
+function openFromUrl(href) {
+  const u = new URL(href, location.href);
+  const nid = u.searchParams.get('n');
+  const ids = (u.searchParams.get('i') || '').split(',').map(decodeURIComponent).filter(Boolean);
+  if (nid && !state.opens[nid]) put('opens', { id: nid, at: now() });
+  if (u.search) history.replaceState(null, '', location.pathname + (u.hash || (ids.length ? '#check' : '#home')));
+  if (ids.length) { startQueue(ids, nid); if (!queue.length) startQueue(dueQueue()); go('check'); }
+  else if (u.hash) go(u.hash.slice(1));
+}
+
+/* ================= views ================= */
+function render() {
+  document.body.classList.toggle('focus', view === 'check');
+  for (const a of $$('.bottom a')) {
+    const on = a.getAttribute('href') === '#' + (view === 'item' ? 'home' : view);
+    if (on && !a.classList.contains('add')) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  }
+  // Keep anything typed into a form across re-renders (a sync or a rotation can trigger one).
+  const keep = renderedView === view + '/' + param ? captureForms() : null;
+  const html = { home: viewHome, check: viewCheck, add: viewAdd, insights: viewInsights, settings: viewSettings, item: viewItem }[view]();
+  $('#app').innerHTML = html;
+  if (keep) restoreForms(keep);
+  renderedView = view + '/' + param;
+  const af = $('[data-autofocus]'); if (af && !('ontouchstart' in window)) af.focus();
+  syncSliders();
+}
+
+let renderedView = '';
+function captureForms() {
+  const out = {};
+  for (const f of $$('#app form[data-form]')) {
+    const key = f.dataset.form + ':' + (f.dataset.id || '');
+    out[key] = [...f.elements].filter(el => el.name || el.id).map(el => ({
+      sel: el.id ? '#' + CSS.escape(el.id) : `[name="${CSS.escape(el.name)}"]${el.type === 'radio' ? `[value="${CSS.escape(el.value)}"]` : ''}`,
+      type: el.type, value: el.value, checked: el.checked,
+    }));
+  }
+  return out;
+}
+function restoreForms(keep) {
+  for (const f of $$('#app form[data-form]')) {
+    const saved = keep[f.dataset.form + ':' + (f.dataset.id || '')];
+    if (!saved) continue;
+    for (const s of saved) {
+      const el = f.querySelector(s.sel);
+      if (!el || el.type === 'submit' || el.type === 'button') continue;
+      if (s.type === 'checkbox' || s.type === 'radio') el.checked = s.checked;
+      else el.value = s.value;
+    }
+  }
+  syncSliders();
+}
+
+/* ---------- home ---------- */
+function viewHome() {
+  const items = live('items');
+  const t = now();
+  const due = M.dueItems(state, t);
+  let h = '';
+  if (!items.length) {
+    return `<h1>Things to tend</h1><div class="empty">
+      <p>Add habits you want to keep up and things you want to come back to someday. Tend checks in now and then, at the times you tend to answer.</p>
+      <div class="row"><a class="btn primary" href="#add">Add something</a><a class="btn" href="#add" data-act="bulk">Paste a list</a></div></div>
+      ${syncReady() ? '' : '<p class="small muted" style="margin-top:22px">Connect GitHub in <a href="#settings">Settings</a> to sync and get notifications.</p>'}`;
+  }
+  if (due.length) h += `<div class="ready"><b>${due.length}</b><span>${due.length === 1 ? 'thing is' : 'things are'} ready to check in on</span><button class="btn" data-act="check-due">Check in</button></div>`;
+  else h += '<h1>Things to tend</h1>';
+  const ls = lists().filter(l => items.some(i => i.list === l));
+  h += `<div class="seg" role="group" aria-label="Show">
+    ${[['all', 'All'], ['habit', 'Habits'], ['reminder', 'Reminders']].map(([k, l]) => `<button data-act="filter-kind" data-k="${k}" aria-pressed="${filter.kind === k}">${l}</button>`).join('')}
+    ${ls.length > 1 ? ls.map(l => `<button data-act="filter-list" data-l="${esc(l)}" aria-pressed="${filter.list === l}">${esc(l)}</button>`).join('') : ''}
+  </div>`;
+  const shown = items.filter(i => (filter.kind === 'all' || i.kind === filter.kind) && (filter.list === 'all' || i.list === filter.list));
+  const active = shown.filter(i => (i.status || 'active') === 'active');
+  const finished = shown.filter(i => (i.status || 'active') !== 'active');
+  const answers = live('answers');
+  const rowFor = i => {
+    let meta, right;
+    if (i.kind === 'habit') {
+      const st = M.habitStatus(i, answers, t);
+      meta = `${esc(M.targetOf(i.target).label)} · <span class="${st.id === 'behind' ? 'tag-behind' : ''}">${esc(st.label)}</span>`;
+      const w = relWhen(M.habitNextDue(i));
+      right = M.isDue(i, t) ? 'Due' : 'Check ' + (/\d/.test(w) ? w : w.toLowerCase());
+    } else {
+      meta = esc(i.list || 'Reminder');
+      right = i.status && i.status !== 'active' ? (i.status === 'done' ? 'Done' : 'Removed') : (M.isDue(i, t) ? 'Due' : relWhen(i.dueAt));
+    }
+    return `<li><a href="#item/${encodeURIComponent(i.id)}"><span class="t">${esc(i.text)}</span><span class="m">${meta}</span><span class="r">${right}</span></a></li>`;
+  };
+  const order = (a, b) => (M.isDue(b, t) - M.isDue(a, t)) || ((a.kind === 'habit' ? M.habitNextDue(a) : a.dueAt || 0) - (b.kind === 'habit' ? M.habitNextDue(b) : b.dueAt || 0));
+  if (active.length) h += `<ul class="list">${active.sort(order).map(rowFor).join('')}</ul>`;
+  else h += '<p class="muted">Nothing here.</p>';
+  if (finished.length) {
+    h += `<p style="margin-top:18px"><button class="btn quiet" data-act="toggle-finished">${filter.finished ? 'Hide' : 'Show'} ${finished.length} finished</button></p>`;
+    if (filter.finished) h += `<ul class="list">${finished.map(rowFor).join('')}</ul>`;
+  }
+  if (!syncReady()) h += '<p class="small muted" style="margin-top:22px">Not connected yet, so there are no notifications. Set it up in <a href="#settings">Settings</a>.</p>';
+  return h;
+}
+
+/* ---------- check-in ---------- */
+function viewCheck() {
+  if (qi >= queue.length) {
+    const nextUp = live('items').filter(i => (i.status || 'active') === 'active').map(i => i.kind === 'habit' ? M.habitNextDue(i) : i.dueAt).filter(Boolean).sort((a, b) => a - b)[0];
+    queue = []; card = null;
+    return `<div class="check-top"><span class="grow"></span><a class="icon-btn" href="#home" aria-label="Close">${xIcon}</a></div>
+      <h1 class="step-in">All caught up.</h1>
+      <p class="ink2">${nextUp ? `Next check-in is due ${esc(relWhen(nextUp).toLowerCase() === 'now' ? 'now' : relWhen(nextUp))}.` : ''} Tend will ping you when it's time.</p>
+      <a class="btn primary wide" href="#home">Done</a>`;
+  }
+  const it = itemById(queue[qi]);
+  if (!it) { qi++; return viewCheck(); }
+  if (!card || card.id !== it.id) card = { id: it.id, step: 0, snapshot: { ...it }, answerId: null };
+  const top = `<div class="check-top"><span class="grow">${queue.length > 1 ? `${qi + 1} of ${queue.length}` : ''}</span><a class="icon-btn" href="#home" aria-label="Close" data-act="close-check">${xIcon}</a></div>`;
+  const kicker = it.kind === 'habit'
+    ? `${esc(it.list ? it.list + ' · ' : '')}Aiming for ${esc(M.targetOf(card.snapshot.target).short)}`
+    : `${esc(it.list ? it.list + ' · ' : '')}Added ${esc(M.itemAddedLabel(it, S().tz))}`;
+  let h = top + `<p class="kicker">${kicker}</p><h1 class="item-title">${esc(it.text)}</h1>`;
+  if (it.kind === 'habit') h += habitStep(it);
+  else h += reminderStep(it);
+  h += `<button class="btn quiet skip" data-act="skip">Skip for now</button>`;
+  return h;
+}
+const xIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+function habitStep(it) {
+  if (card.step === 0) {
+    return `<div class="step-in"><p class="q">When did you last do this?</p>
+      <ul class="opts">${M.LAST_BUCKETS.map(b => `<li><button class="opt" data-act="last" data-v="${b.id}">${esc(b.label)}</button></li>`).join('')}</ul></div>`;
+  }
+  if (card.step === 1) {
+    const tgt = M.targetOf(card.snapshot.target).short;
+    const sub = card.verdict === 'behind' ? `That's less often than ${esc(tgt)}.` : card.verdict === 'ahead' ? `That's more often than ${esc(tgt)}.` : '';
+    return `<div class="step-in"><p class="q">How do you feel about how often you're doing it?</p>${sub ? `<p class="q-sub">${sub}</p>` : ''}
+      <ul class="opts">${M.FEELINGS.map(f => `<li><button class="opt" data-act="feel" data-v="${f.id}">${esc(f.label)}</button></li>`).join('')}</ul></div>`;
+  }
+  return `<div class="step-in"><p class="q">Do you do this without having to remember to?</p>
+    <ul class="opts">${M.AUTOMATICITY.map(f => `<li><button class="opt" data-act="auto" data-v="${f.id}">${esc(f.label)}</button></li>`).join('')}</ul></div>`;
+}
+function reminderStep(it) {
+  const idx = Math.max(0, M.REMIND_CHOICES.findIndex(c => c.id === (it.lastChoice || 'weeks')));
+  return `<div class="step-in">${sliderHTML(idx, 'remind')}
+    <button class="btn primary wide" data-act="remind"><span>Remind me <span data-slider-text="remind">${esc(M.REMIND_CHOICES[idx].label.toLowerCase())}</span></span></button>
+    <div class="after"><button class="btn" data-act="r-done">Done ✓</button><button class="btn danger" data-act="r-remove">Remove</button></div></div>`;
+}
+function sliderHTML(idx, key) {
+  return `<p class="flabel">Bring this back</p>
+    <p class="when" data-slider-label="${key}">${esc(M.REMIND_CHOICES[idx].label)}</p>
+    <div class="slider"><label class="sr" for="sl-${key}">When to bring it back</label>
+      <input type="range" id="sl-${key}" min="0" max="${M.REMIND_CHOICES.length - 1}" step="1" value="${idx}" data-slider="${key}"></div>
+    <div class="ticks" aria-hidden="true">${M.REMIND_CHOICES.map(c => `<span>${esc(c.tick)}</span>`).join('')}</div>`;
+}
+function syncSliders() {
+  for (const el of $$('input[type=range][data-slider]')) {
+    const v = +el.value, max = +el.max;
+    el.style.setProperty('--fill', `${(v / max) * 100}%`);
+    const c = M.REMIND_CHOICES[v];
+    const lab = $(`[data-slider-label="${el.dataset.slider}"]`); if (lab) lab.textContent = c.label;
+    const txt = $(`[data-slider-text="${el.dataset.slider}"]`); if (txt) txt.textContent = c.label.toLowerCase();
+  }
+}
+document.addEventListener('input', e => { if (e.target.matches('input[type=range][data-slider]')) syncSliders(); });
+
+function answerHabit(kind, v) {
+  const it = itemById(card.id); if (!it) return;
+  const t = now();
+  if (kind === 'last') {
+    const bounds = M.bucketBounds({ last: v, at: t }, card.snapshot);
+    card.verdict = M.judge(bounds, M.targetOf(card.snapshot.target).perDay);
+    card.answerId = uid();
+    card.ans = { id: card.answerId, itemId: it.id, nid: currentNid, at: t, kind: 'habit', last: v, verdict: card.verdict, target: card.snapshot.target };
+    card.askFeel = M.shouldAskFeeling(card.verdict);
+    card.askAuto = M.shouldAskAuto(card.snapshot, live('answers'), card.verdict);
+  } else if (kind === 'feel') card.ans.feel = v;
+  else if (kind === 'auto') card.ans.auto = v;
+  put('answers', { ...card.ans });
+  const { item, notes } = M.updateHabit(card.snapshot, { verdict: card.verdict, feel: card.ans.feel, auto: card.ans.auto }, t);
+  state.items[it.id] = { ...item, updatedAt: Date.now() };
+  changed();
+  card.notes = notes;
+  const next = kind === 'last' ? (card.askFeel ? 1 : card.askAuto ? 2 : 3) : kind === 'feel' ? (card.askAuto ? 2 : 3) : 3;
+  if (next === 3) finishCard(item);
+  else { card.step = next; render(); }
+}
+function finishCard(item) {
+  let msg = item.kind === 'habit' ? `Saved. Next check-in ${relWhen(item.nextDue).toLowerCase() === 'tomorrow' ? 'tomorrow' : 'around ' + fmtDay(item.nextDue)}.` : 'Saved.';
+  if (card && card.notes) {
+    if (card.notes.includes('target-down')) msg = `Saved, and changed the aim to ${M.targetOf(item.target).short}.`;
+    if (card.notes.includes('target-up')) msg = `Saved, and raised the aim to ${M.targetOf(item.target).short}.`;
+  }
+  toast(msg);
+  qi++; card = null; render();
+}
+function answerReminder(action) {
+  const it = itemById(card.id); if (!it) return;
+  const t = now();
+  const prev = { ...it };
+  const ans = { id: uid(), itemId: it.id, nid: currentNid, at: t, kind: 'reminder' };
+  if (action === 'remind') {
+    const choice = M.REMIND_CHOICES[+$('#sl-remind').value];
+    const d = M.reminderDue(choice.id, t, S());
+    put('items', { ...it, dueAt: d.dueAt, timed: d.timed, lastChoice: choice.id });
+    put('answers', { ...ans, remind: choice.id });
+    toast(`Back ${d.timed ? (d.dueAt - t < 4 * M.HOUR ? 'in a few hours' : relWhen(d.dueAt).toLowerCase()) : 'around ' + fmtDay(d.dueAt)}.`);
+  } else {
+    put('items', { ...it, status: action === 'r-done' ? 'done' : 'removed', closedAt: t });
+    put('answers', { ...ans, action: action === 'r-done' ? 'done' : 'remove' });
+    toast(action === 'r-done' ? 'Marked done.' : 'Removed.', () => { state.items[prev.id] = { ...prev, updatedAt: Date.now() }; changed(); });
+  }
+  qi++; card = null; render();
+}
+
+/* ---------- add ---------- */
+function viewAdd() {
+  if (bulk) return viewBulk();
+  const habit = addKind === 'habit';
+  return `<h1>Add</h1>
+  <form data-form="add">
+    <label class="f"><span>What is it?</span><textarea name="text" rows="2" maxlength="140" required placeholder="Read Dracula, retinol at night, get the chairs re-upholstered" data-autofocus></textarea></label>
+    <label class="f"><span>List</span><input type="text" name="list" list="lists" value="${esc(filter.list !== 'all' ? filter.list : '')}" placeholder="Desires, Problems, or anything"><datalist id="lists">${lists().map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
+    <label class="check-line"><input type="checkbox" name="habit" ${habit ? 'checked' : ''} data-act-change="habit"><span>Track how consistently I do this<small>For habits. Otherwise Tend just reminds you about it later.</small></span></label>
+    ${habit ? `
+      <span class="flabel">How often do you want to do it?</span>
+      <div class="radios">${M.TARGETS.map((t, i) => `<label><input type="radio" name="target" value="${t.id}" ${i === 0 ? 'checked' : ''}><span>${esc(t.label)}</span></label>`).join('')}</div>
+      <span class="flabel">How established is it?</span>
+      <div class="radios">${M.STAGES.map((s, i) => `<label><input type="radio" name="stage" value="${s.id}" ${i === 0 ? 'checked' : ''}><span>${esc(s.label)}<small>${esc(s.hint)}</small></span></label>`).join('')}</div>`
+    : `<div style="margin-bottom:18px">${sliderHTML(2, 'first').replace('Bring this back', 'First reminder')}</div>`}
+    <button class="btn primary wide" type="submit">Add</button>
+  </form>
+  <p style="margin-top:18px"><a href="#add" data-act="bulk">Paste a whole list instead</a></p>`;
+}
+function viewBulk() {
+  return `<h1>Paste a list</h1>
+  <form data-form="bulk">
+    <label class="f"><span>One per line</span><textarea name="lines" rows="9" placeholder="- [ ] Read Dracula&#10;- [ ] Long leather coat&#10;2025-09-20 Get chairs re-upholstered" data-autofocus></textarea>
+      <small>Checklist marks like "- [ ]" are stripped, checked items ("- [x]") are skipped, and a date at the start of a line becomes its "added" date.</small></label>
+    <label class="f"><span>List</span><input type="text" name="list" list="lists" placeholder="Desires"><datalist id="lists">${lists().map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
+    <label class="f"><span>Spread the first reminders over</span><select name="spread">
+      <option value="14">The next two weeks</option><option value="30" selected>The next month</option><option value="90">The next three months</option><option value="180">The next six months</option></select>
+      <small>All added as reminders. You can switch any of them to a tracked habit later.</small></label>
+    <button class="btn primary wide" type="submit">Add them</button>
+  </form>`;
+}
+function parseLine(line) {
+  let s = line.trim();
+  if (!s) return null;
+  if (/^[-*+]\s*\[[xX]\]/.test(s)) return null;
+  s = s.replace(/^[-*+]\s*(\[\s?\]\s*)?/, '').replace(/^\d+[.)]\s+/, '').trim();
+  let addedOn = null, m;
+  if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})[\s:–-]+/.exec(s))) { addedOn = `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`; s = s.slice(m[0].length); }
+  else if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})[\s:–-]+/.exec(s))) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; addedOn = `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`; s = s.slice(m[0].length); }
+  s = s.trim();
+  return s ? { text: s.slice(0, 140), addedOn } : null;
+}
+
+/* ---------- item detail ---------- */
+function viewItem() {
+  const it = itemById(param);
+  if (!it) return '<h1>Not found</h1><p><a href="#home">Back to the list</a></p>';
+  const t = now();
+  const closed = (it.status || 'active') !== 'active';
+  let h = `<p class="kicker"><a href="#home">← Items</a></p>
+  <form data-form="edit" data-id="${esc(it.id)}">
+    <label class="f"><span class="sr">Text</span><textarea name="text" rows="2" maxlength="140" data-act-change="edit" style="font:750 24px/1.2 var(--display)">${esc(it.text)}</textarea></label>
+    <label class="f"><span>List</span><input type="text" name="list" list="lists" value="${esc(it.list || '')}" data-act-change="edit"><datalist id="lists">${lists().map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
+  </form>`;
+  if (closed) h += `<div class="status-box">${it.status === 'done' ? 'Done' : 'Removed'}${it.closedAt ? ' on ' + esc(fmtDay(it.closedAt)) : ''}.</div><button class="btn" data-act="restore" data-id="${esc(it.id)}">Bring it back</button>`;
+  if (it.kind === 'habit') {
+    const st = M.habitStatus(it, live('answers'), t);
+    h += `<h2>How it's going</h2>`;
+    if (st.post.n >= 2) h += `<p>You're doing this <b>${esc(M.perWeekText(st.post.median))}</b>, aiming for ${esc(M.targetOf(it.target).short)}. ${st.id === 'behind' ? `There's a ${Math.round(st.post.pShort * 100)}% chance you're short of that.` : st.id === 'ahead' ? 'That\'s ahead of your aim.' : 'That\'s on track.'}</p>${forestChart([{ it, post: st.post }])}`;
+    else h += `<p class="ink2">Still learning. A couple more check-ins and Tend will estimate how often you're doing it.</p>`;
+    if (!closed) h += `<p class="small muted">Next check-in ${esc(relWhen(M.habitNextDue(it)).toLowerCase() === 'now' ? 'is due now' : relWhen(M.habitNextDue(it)))}. Gaps grow while you're on track and shrink when you slip.</p>`;
+    h += `<span class="flabel" style="margin-top:18px">Aim</span><div class="radios">${M.TARGETS.map(x => `<label><input type="radio" name="target" value="${x.id}" ${it.target === x.id ? 'checked' : ''} data-act-change="target" data-id="${esc(it.id)}"><span>${esc(x.label)}</span></label>`).join('')}</div>`;
+  } else if (!closed) {
+    h += `<p class="ink2">Comes back ${esc(M.isDue(it, t) ? 'now' : it.timed ? relWhen(it.dueAt).toLowerCase() : 'around ' + fmtDay(it.dueAt))}. Added ${esc(M.itemAddedLabel(it, S().tz))}.</p>`;
+  }
+  if (!closed) {
+    h += `<div class="row" style="margin:16px 0 8px"><button class="btn primary" data-act="check-one" data-id="${esc(it.id)}">Check in now</button>
+      ${it.kind === 'reminder' ? `<button class="btn" data-act="item-done" data-id="${esc(it.id)}">Done ✓</button>` : ''}
+      <button class="btn danger" data-act="item-remove" data-id="${esc(it.id)}">Remove</button></div>
+      <p><button class="btn quiet" data-act="switch-kind" data-id="${esc(it.id)}" style="padding:0">${it.kind === 'habit' ? 'Stop tracking consistency (make it a reminder)' : 'Track how consistently I do this instead'}</button></p>`;
+    if (switching === it.id) h += switchForm(it);
+  }
+  const hist = answersOf(it.id);
+  if (hist.length) {
+    h += `<h2>History</h2><ul class="hist">${hist.slice(0, 40).map(a => {
+      let txt;
+      if (a.kind === 'habit') txt = [M.bucketOf(a.last)?.label, a.feel && M.FEELINGS.find(f => f.id === a.feel)?.label, a.auto && ({ yes: 'Automatic', some: 'Sometimes automatic', no: 'Not automatic yet' })[a.auto]].filter(Boolean).join(' · ');
+      else txt = a.action === 'done' ? 'Marked done' : a.action === 'remove' ? 'Removed' : `Pushed to ${M.remindOf(a.remind).label.toLowerCase()}`;
+      return `<li><span>${esc(txt)}</span><span>${esc(fmtDay(a.at))}</span></li>`;
+    }).join('')}</ul>`;
+  }
+  return h;
+}
+let switching = null;
+function switchForm(it) {
+  if (it.kind === 'habit') return `<form class="panel" data-form="to-reminder" data-id="${esc(it.id)}">${sliderHTML(4, 'switch').replace('Bring this back', 'First reminder')}<button class="btn primary wide" type="submit">Make it a reminder</button></form>`;
+  return `<form class="panel" data-form="to-habit" data-id="${esc(it.id)}">
+    <span class="flabel">How often do you want to do it?</span>
+    <div class="radios">${M.TARGETS.map((t, i) => `<label><input type="radio" name="target" value="${t.id}" ${i === 0 ? 'checked' : ''}><span>${esc(t.label)}</span></label>`).join('')}</div>
+    <span class="flabel">How established is it?</span>
+    <div class="radios">${M.STAGES.map((s, i) => `<label><input type="radio" name="stage" value="${s.id}" ${i === 0 ? 'checked' : ''}><span>${esc(s.label)}<small>${esc(s.hint)}</small></span></label>`).join('')}</div>
+    <button class="btn primary wide" type="submit">Track it</button></form>`;
+}
+
+/* ---------- insights ---------- */
+function chartW() { return Math.max(280, Math.min(528, $('#app').clientWidth - 32 - 30)); }
+// One row per habit: estimated sessions per week (dot, with an 80% range) against the aim (tick).
+function forestChart(rows) {
+  const W = chartW(), L = 4, R = 8, rowH = 46, top = 6, axisH = 42;
+  const H = top + rows.length * rowH + axisH;
+  const lo = Math.log10(0.1), hi = Math.log10(10);
+  const X = v => L + (Math.log10(Math.min(10, Math.max(0.1, v))) - lo) / (hi - lo) * (W - L - R);
+  let s = `<svg class="chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="How often you do each habit compared with your aim">`;
+  const ticks = [[0.25, '¼'], [0.5, '½'], [1, '1'], [2, '2'], [4, '4'], [7, '7']];
+  for (const [v, l] of ticks) s += `<line class="grid" x1="${X(v)}" x2="${X(v)}" y1="${top}" y2="${H - axisH}"/><text x="${X(v)}" y="${H - axisH + 16}" text-anchor="middle">${l}</text>`;
+  s += `<text x="${(W - R + L) / 2}" y="${H - 4}" text-anchor="middle">times per week</text>`;
+  rows.forEach(({ it, post }, k) => {
+    const y = top + k * rowH;
+    const tgt = M.targetOf(it.target).perDay * 7, m = post.median * 7;
+    const tip = `${it.text}\nAbout ${(m).toFixed(m < 1 ? 1 : 0)} a week (80% range ${(post.lo * 7).toFixed(1)}–${(post.hi * 7).toFixed(1)})\nAim: ${M.targetOf(it.target).label.toLowerCase()}`;
+    if (rows.length > 1) s += `<text class="lbl" x="${L}" y="${y + 14}">${esc(it.text.length > 38 ? it.text.slice(0, 37) + '…' : it.text)}</text>`;
+    const cy = y + (rows.length > 1 ? 30 : 22);
+    s += `<line class="range" x1="${X(post.lo * 7)}" x2="${X(post.hi * 7)}" y1="${cy}" y2="${cy}"/>`;
+    s += `<line class="target" x1="${X(tgt)}" x2="${X(tgt)}" y1="${cy - 9}" y2="${cy + 9}"/>`;
+    s += `<circle class="dot" cx="${X(m)}" cy="${cy}" r="6"/>`;
+    s += `<rect x="0" y="${y}" width="${W}" height="${rowH}" fill="transparent" data-tip="${esc(tip)}"/>`;
+  });
+  s += '</svg>';
+  return `<div class="chart-box">${s}<div class="legend-row"><span><svg width="14" height="12"><circle cx="7" cy="6" r="5" fill="var(--accent)"/></svg>Your estimated rate</span><span><svg width="22" height="12"><line x1="1" x2="21" y1="6" y2="6" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"/></svg>Likely range</span><span><svg width="8" height="14"><line x1="4" x2="4" y1="1" y2="13" stroke="var(--ink)" stroke-width="2"/></svg>Your aim</span></div></div>`;
+}
+function hourChart(model, s) {
+  const hours = [];
+  for (let h = Math.ceil(s.wakeStart); h < s.wakeEnd; h++) hours.push(h % 24);
+  const W = chartW(), L = 34, R = 4, T = 8, B = 24, H = 170;
+  const bw = (W - L - R) / hours.length;
+  const Y = v => T + (1 - v) * (H - T - B);
+  let svg = `<svg class="chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Chance you answer within two hours, by hour">`;
+  for (const v of [0, 0.5, 1]) svg += `<line class="${v ? 'grid' : 'axis'}" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${v * 100}%</text>`;
+  hours.forEach((h, i) => {
+    const m = model[h], x = L + i * bw + 2, w = Math.max(2, bw - 4);
+    const lab = h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
+    const tip = `${lab}\n${m.n ? `${m.n} ${m.n === 1 ? 'ping' : 'pings'} sent here\nabout ${Math.round(m.mean * 100)}% answered within 2 hours` : 'Not tried yet'}`;
+    if (m.n) svg += `<rect class="bar" x="${x}" y="${Y(m.mean)}" width="${w}" height="${Math.max(1, Y(0) - Y(m.mean))}" rx="3"/>`;
+    else svg += `<rect class="bar-untried" x="${x + .5}" y="${Y(m.mean)}" width="${w - 1}" height="${Math.max(1, Y(0) - Y(m.mean))}" rx="3"/>`;
+    if (i % Math.ceil(hours.length / 7) === 0) svg += `<text x="${x + w / 2}" y="${H - 6}" text-anchor="middle">${lab}</text>`;
+    svg += `<rect x="${x - 2}" y="${T}" width="${bw}" height="${H - T - B}" fill="transparent" data-tip="${esc(tip)}"/>`;
+  });
+  return `<div class="chart-box">${svg}</div>`;
+}
+function bestHour(model, s) {
+  let best = null;
+  for (let h = Math.ceil(s.wakeStart); h < s.wakeEnd; h++) { const m = model[h % 24]; if (m.n >= 2 && (!best || m.mean > best.mean)) best = m; }
+  if (!best) return null;
+  const h = best.h; return h === 0 ? '12am' : h < 12 ? h + 'am' : h === 12 ? 'noon' : (h - 12) + 'pm';
+}
+function viewInsights() {
+  const t = now(), s = S();
+  const answers = live('answers');
+  const habits = live('items').filter(i => i.kind === 'habit' && (i.status || 'active') === 'active');
+  const scored = habits.map(it => ({ it, ...M.needScore(it, answers, t) }));
+  const ready = scored.filter(x => x.score !== null).sort((a, b) => b.score - a.score);
+  const learning = scored.filter(x => x.score === null);
+  let h = '<h1>Insights</h1>';
+  if (sent.status && !sent.status.ok) h += `<div class="status-box bad">${esc(sent.status.message)}</div>`;
+  h += '<h2>What needs the most help</h2>';
+  if (ready.length) {
+    h += `<p class="ink2">${ready[0].post.pShort > 0.5 ? `<b>${esc(ready[0].it.text)}</b> needs the most help: about ${esc(M.perWeekText(ready[0].post.median).replace('about ', ''))}, aiming for ${esc(M.targetOf(ready[0].it.target).short)}.` : 'Everything with enough answers looks on track.'}</p>`;
+    h += forestChart(ready.map(x => ({ it: x.it, post: x.post })));
+  } else h += '<p class="ink2">Not enough check-ins yet. Each habit needs a couple of answers before Tend can estimate how often you do it.</p>';
+  if (learning.length && ready.length) h += `<p class="small muted" style="margin-top:8px">Still learning: ${learning.map(x => esc(x.it.text)).join(', ')}.</p>`;
+  const over = ready.filter(x => x.feel && x.feel.n && x.feel.less / x.feel.n > 0.5);
+  if (over.length) h += `<h3>Doing more than you'd like</h3><p class="ink2">${over.map(x => esc(x.it.text)).join(', ')}. Worth asking what it's standing in for.</p>`;
+
+  const outs = M.outcomes(sent, state, t);
+  const all = M.hourModel(outs, null);
+  h += '<h2>When you answer</h2>';
+  const tried = outs.filter(o => o.settled).length;
+  h += `<p class="ink2">${tried ? `Chance of an answer within two hours of a ping, from ${tried} ${tried === 1 ? 'ping' : 'pings'} so far. Dashed bars are hours not tried yet; their height is the starting guess.` : 'No pings answered or missed yet. These are starting guesses: reminders around midday, habits in the evening.'}</p>`;
+  h += hourChart(all, s);
+  const bR = bestHour(M.hourModel(outs, 'reminder'), s), bH = bestHour(M.hourModel(outs, 'habit'), s);
+  const mm = M.modeModel(outs);
+  const budget = sent.budget;
+  h += '<ul class="facts" style="margin-top:14px">';
+  if (bR || bH) h += `<li><b>Best times so far</b>${bR ? `Reminders around ${bR}. ` : ''}${bH ? `Habit check-ins around ${bH}.` : ''}</li>`;
+  h += `<li><b>${budget ? budget.value : s.budgetStart} pings a day</b>${budget && budget.history && budget.history.length > 1 ? esc(budget.history[budget.history.length - 1].why) + '. ' : ''}About one day in five gets an extra ping; answering those quickly raises the number, ignoring pings lowers it. Never more than ${s.budgetMax}.</li>`;
+  if (mm.group.sends + mm.spread.sends) h += `<li><b>Grouped or one at a time</b>Grouped pings: ${Math.round(mm.group.mean * 100)}% of items answered (${mm.group.sends} sent). One at a time: ${Math.round(mm.spread.mean * 100)}% (${mm.spread.sends} sent).</li>`;
+  if (sent.plan && sent.plan.date === M.zDate(t, s.tz)) {
+    const times = sent.plan.slots.map(x => new Date(x.at).toLocaleTimeString(undefined, { hour: 'numeric', timeZone: s.tz }) + (x.state === 'sent' ? ' (sent)' : x.state === 'empty' ? ' (nothing due)' : x.state === 'late' ? ' (missed)' : ''));
+    h += `<li><b>Today's plan</b>${sent.plan.mode === 'group' ? 'One grouped ping' : `${times.length} ${times.length === 1 ? 'ping' : 'pings'}`}: ${esc(times.join(', ') || 'none')}.</li>`;
+  }
+  h += '</ul>';
+  return h;
+}
+
+/* ---------- settings ---------- */
+function hourOpts(sel, from, to) {
+  let o = '';
+  for (let h = from; h <= to; h++) { const hh = h % 24; const lab = hh === 0 ? 'Midnight' : hh < 12 ? hh + ' am' : hh === 12 ? 'Noon' : (hh - 12) + ' pm'; o += `<option value="${h}" ${h === sel ? 'selected' : ''}>${lab}${h >= 24 ? ' (next day)' : ''}</option>`; }
+  return o;
+}
+let testMsg = '', pushMsg = '';
+function viewSettings() {
+  const s = S();
+  const dev = thisDevice();
+  const keysOk = !!s.vapidPublic;
+  const secretsUrl = cfg.owner ? `https://github.com/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/settings/secrets/actions/new` : 'https://github.com/settings';
+  let h = '<h1>Settings</h1>';
+
+  h += `<div class="panel"><h3>Sync with GitHub</h3>
+    <p class="small ink2">Tend saves to tend.json in your private data repo, next to Stitch's data. Your existing Stitch token works.</p>
+    <form data-form="sync">
+      <label class="f"><span>GitHub username</span><input type="text" name="owner" value="${esc(cfg.owner)}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+      <label class="f"><span>Data repo</span><input type="text" name="repo" value="${esc(cfg.repo)}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+      <label class="f"><span>Token</span><input type="password" name="token" value="${esc(cfg.token)}" autocomplete="off" spellcheck="false" placeholder="github_pat_…"><small>Stored only on this device. On iPhone, paste it inside the home-screen app; it doesn't share storage with Safari.</small></label>
+      <div class="row"><button class="btn primary" type="submit">${syncReady() ? 'Save and sync' : 'Connect'}</button></div>
+      <p id="syncStatus" class="small ${syncState === 'error' ? 'err' : 'muted'}" style="margin:10px 0 0">${esc(syncText())}</p>
+    </form></div>`;
+
+  h += `<div class="panel"><h3>Notifications</h3>`;
+  // step 1: keys
+  h += `<p class="flabel">1. Notification keys${keysOk ? ' ✓' : ''}</p>`;
+  if (!keysOk && !pendingKeys) h += `<p class="small ink2">A key pair lets your data repo sign the notifications it sends. You do this once, on any device.</p><button class="btn" data-act="make-keys" ${syncReady() ? '' : 'disabled'}>Create keys</button>${syncReady() ? '' : '<p class="small muted">Connect GitHub first.</p>'}`;
+  else if (pendingKeys) h += `<ol class="steps"><li>Copy this private key:</li></ol>
+      <div class="keybox" id="privKey">${esc(pendingKeys.priv)}</div>
+      <div class="row" style="margin-bottom:10px"><button class="btn" data-act="copy-key">Copy</button></div>
+      <ol class="steps" start="2"><li><a href="${esc(secretsUrl)}" target="_blank" rel="noopener">Open your data repo's Actions secrets</a>, name a new secret <b>VAPID_PRIVATE_KEY</b>, paste, and save.</li><li>Come back and confirm. The key isn't stored anywhere else, so don't close this page first.</li></ol>
+      <button class="btn primary" data-act="keys-saved">I've saved it as a secret</button>`;
+  else h += `<p class="small muted">Set up. <button class="btn quiet" data-act="new-keys" style="min-height:0;padding:0">Make new keys</button></p>`;
+  // step 2: this device
+  h += `<p class="flabel" style="margin-top:18px">2. This device${dev ? ' ✓' : ''}</p>`;
+  if (!pushSupported() || (isIOS && !isStandalone())) {
+    h += `<p class="small ink2">${isIOS ? 'iPhone only allows notifications from apps on the home screen. In Safari, tap Share, then <b>Add to Home Screen</b>. Open Tend from the home screen, connect GitHub there, and come back to this step.' : 'This browser doesn\'t support web notifications.'}</p>`;
+  } else if (dev && dev.vapid === s.vapidPublic) {
+    h += `<p class="small muted">Notifications are on for this ${esc(dev.name || 'device')}.</p><button class="btn" data-act="push-off">Turn off on this device</button>`;
+  } else {
+    h += `${dev ? '<p class="small err">The keys changed since this device was set up. Turn notifications on again.</p>' : ''}<button class="btn primary" data-act="push-on" ${keysOk && syncReady() ? '' : 'disabled'}>Turn on notifications here</button>${keysOk ? '' : '<p class="small muted">Do step 1 first.</p>'}`;
+  }
+  if (pushMsg) h += `<p class="small err" style="margin-top:8px">${esc(pushMsg)}</p>`;
+  // step 3: test
+  const others = Object.values(state.devices).filter(d => d && !d.deleted && d.vapid === s.vapidPublic);
+  h += `<p class="flabel" style="margin-top:18px">3. Send a test</p>
+    <p class="small ink2">Asks your data repo to send one now. It takes about a minute to arrive.${others.length ? ` Goes to ${others.length} ${others.length === 1 ? 'device' : 'devices'}.` : ''}</p>
+    <button class="btn" data-act="test" ${keysOk && others.length && syncReady() ? '' : 'disabled'}>Send a test notification</button>
+    ${testMsg ? `<p class="small ${/^GitHub/.test(testMsg) ? 'err' : 'muted'}" style="margin-top:8px">${esc(testMsg)}</p>` : ''}
+    ${sent.status ? `<p class="small ${sent.status.ok ? 'muted' : 'err'}" style="margin-top:8px">Sender: ${esc(sent.status.message)} (${esc(new Date(sent.status.at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }))})</p>` : ''}
+  </div>`;
+
+  h += `<div class="panel"><h3>When to reach you</h3>
+    <div class="two">
+      <label class="f"><span>From</span><select data-act-change="wakeStart">${hourOpts(s.wakeStart, 6, 14)}</select></label>
+      <label class="f"><span>Until</span><select data-act-change="wakeEnd">${hourOpts(s.wakeEnd, 18, 27)}</select></label>
+    </div>
+    <p class="small ink2">Nothing is sent outside these hours. Within them, Tend tries different times and learns when you answer. Time zone: ${esc(s.tz)}${s.tz !== deviceTz ? ` <button class="btn quiet" data-act="use-tz" style="min-height:0;padding:0">Use ${esc(deviceTz)}</button>` : ''}.</p>
+    <div class="two">
+      <label class="f"><span>Pings a day to start</span><select data-act-change="budgetStart">${[1, 2, 3, 4, 5].map(n => `<option ${n === s.budgetStart ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="f"><span>Never more than</span><select data-act-change="budgetMax">${[2, 3, 4, 5, 6, 8].map(n => `<option ${n === s.budgetMax ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+    </div>
+    <label class="f"><span>Weekly summary</span><select data-act-change="digestDay">${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d, i) => `<option value="${i}" ${i === s.digestDay ? 'selected' : ''}>${d}</option>`).join('')}</select><small>Sent in the first ping of that day: which habits need the most help.</small></label>
+  </div>`;
+  h += `<div class="panel"><h3>Backup</h3><button class="btn" data-act="export">Download everything</button></div>`;
+  return h;
+}
+
+/* ================= events ================= */
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-act]');
+  if (!t) return;
+  const a = t.dataset.act, id = t.dataset.id;
+  switch (a) {
+    case 'go': e.preventDefault(); go(t.dataset.to); break;
+    case 'undo': $('#toast').classList.remove('show'); if (toastUndo) { const u = toastUndo; toastUndo = null; u(); } break;
+    case 'check-due': startQueue(dueQueue()); go('check'); break;
+    case 'check-one': startQueue([id]); go('check'); break;
+    case 'close-check': queue = []; card = null; break;
+    case 'skip': qi++; card = null; render(); break;
+    case 'last': case 'feel': case 'auto': answerHabit(a, t.dataset.v); break;
+    case 'remind': case 'r-done': case 'r-remove': answerReminder(a); break;
+    case 'filter-kind': filter.kind = t.dataset.k; render(); break;
+    case 'filter-list': filter.list = filter.list === t.dataset.l ? 'all' : t.dataset.l; render(); break;
+    case 'toggle-finished': filter.finished = !filter.finished; render(); break;
+    case 'bulk': e.preventDefault(); bulk = true; if (view !== 'add') location.hash = '#add'; else render(); break;
+    case 'restore': { const it = itemById(id); put('items', { ...it, status: 'active', closedAt: null, dueAt: it.kind === 'reminder' && (it.dueAt || 0) < now() ? now() : it.dueAt }); break; }
+    case 'item-done': case 'item-remove': {
+      const it = itemById(id), prev = { ...it };
+      put('items', { ...it, status: a === 'item-done' ? 'done' : 'removed', closedAt: now() });
+      put('answers', { id: uid(), itemId: id, at: now(), kind: it.kind, action: a === 'item-done' ? 'done' : 'remove' });
+      toast(a === 'item-done' ? 'Marked done.' : 'Removed.', () => { state.items[id] = { ...prev, updatedAt: Date.now() }; changed(); });
+      go('home'); break;
+    }
+    case 'switch-kind': switching = switching === id ? null : id; render(); break;
+    case 'make-keys': case 'new-keys':
+      if (a === 'new-keys' && !confirm('New keys mean every device has to turn notifications on again, and you replace the secret in GitHub. Continue?')) break;
+      await makeKeys(); render(); break;
+    case 'copy-key': try { await navigator.clipboard.writeText(pendingKeys.priv); toast('Copied.'); } catch { toast('Select the key and copy it by hand.'); } break;
+    case 'keys-saved': setSettings({ vapidPublic: pendingKeys.pub }); pendingKeys = null; toast('Keys saved. Now turn on notifications on your phone.'); break;
+    case 'push-on': pushMsg = ''; try { await enablePush(); toast('Notifications are on for this device.'); } catch (err) { pushMsg = err.message; } render(); break;
+    case 'push-off': await disablePush(); render(); break;
+    case 'test': testMsg = 'Asking GitHub…'; render(); await syncNow(); testMsg = (await dispatchTest()) || 'Sent the request. A notification should arrive in about a minute.'; render(); setTimeout(() => syncNow(), 75000); break;
+    case 'use-tz': setSettings({ tz: deviceTz }); break;
+    case 'export': {
+      const blob = new Blob([JSON.stringify({ tend: state, sent }, null, 1)], { type: 'application/json' });
+      const l = document.createElement('a'); l.href = URL.createObjectURL(blob); l.download = `tend-backup-${new Date().toISOString().slice(0, 10)}.json`; l.click();
+      setTimeout(() => URL.revokeObjectURL(l.href), 2000); break;
+    }
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target.closest('[data-act-change]');
+  if (!t) return;
+  const a = t.dataset.actChange;
+  if (a === 'habit') { addKind = t.checked ? 'habit' : null; render(); return; }
+  if (a === 'edit') {
+    const f = t.closest('form'), it = itemById(f.dataset.id); if (!it) return;
+    const text = f.text.value.trim(); if (!text) return;
+    put('items', { ...it, text: text.slice(0, 140), list: f.list.value.trim() });
+    toast('Saved.'); return;
+  }
+  if (a === 'target') { const it = itemById(t.dataset.id); put('items', { ...it, target: t.value }); return; }
+  if (['wakeStart', 'wakeEnd', 'budgetStart', 'budgetMax', 'digestDay'].includes(a)) {
+    let v = Number(t.value);
+    const s = S(), patch = { [a]: v };
+    if (a === 'wakeEnd' && v - s.wakeStart < 4) { toast('Keep at least four hours between start and end.'); render(); return; }
+    if (a === 'wakeStart' && s.wakeEnd - v < 4) { toast('Keep at least four hours between start and end.'); render(); return; }
+    if (a === 'budgetStart' && v > s.budgetMax) patch.budgetMax = v;
+    if (a === 'budgetMax' && v < s.budgetStart) patch.budgetStart = v;
+    setSettings(patch);
+  }
+});
+document.addEventListener('submit', async e => {
+  const f = e.target.closest('form[data-form]');
+  if (!f) return;
+  e.preventDefault();
+  const fd = new FormData(f), k = f.dataset.form, t = now();
+  if (k === 'add') {
+    const text = (fd.get('text') || '').trim().replace(/\s+/g, ' ');
+    if (!text) return;
+    const base = { id: uid(), text: text.slice(0, 140), list: (fd.get('list') || '').trim(), createdAt: t, addedOn: M.zDate(t, S().tz), status: 'active' };
+    if (fd.get('habit')) {
+      const stage = fd.get('stage') || 'new';
+      put('items', { ...base, kind: 'habit', target: fd.get('target') || 'daily', stage, nextDue: t + M.stageOf(stage).interval * M.DAY });
+      toast(`Added. First check-in ${M.stageOf(stage).interval === 1 ? 'tomorrow' : 'in a few days'}.`);
+    } else {
+      const choice = M.REMIND_CHOICES[+$('#sl-first').value];
+      const d = M.reminderDue(choice.id, t, S());
+      put('items', { ...base, kind: 'reminder', dueAt: d.dueAt, timed: d.timed, lastChoice: choice.id });
+      toast(`Added. Back ${d.timed ? 'soon' : 'around ' + fmtDay(d.dueAt)}.`);
+    }
+    addKind = null; go('home');
+  } else if (k === 'bulk') {
+    const lines = (fd.get('lines') || '').split('\n').map(parseLine).filter(Boolean);
+    if (!lines.length) return toast('Nothing to add.');
+    const list = (fd.get('list') || '').trim(), spread = Number(fd.get('spread')) || 30, s = S();
+    lines.forEach((l, n) => {
+      const day = 1 + Math.floor(Math.random() * spread);
+      const id = 'i' + uid() + n;
+      state.items[id] = { id, text: l.text, list, kind: 'reminder', createdAt: t, addedOn: l.addedOn || M.zDate(t, s.tz), status: 'active',
+        dueAt: M.zTime(M.addDaysStr(M.zDate(t, s.tz), day), s.wakeStart, s.tz), timed: false, lastChoice: 'weeks', updatedAt: Date.now() };
+    });
+    changed();
+    toast(`Added ${lines.length}. They'll come back over the next ${spread === 14 ? 'two weeks' : spread === 30 ? 'month' : spread === 90 ? 'three months' : 'six months'}.`);
+    bulk = false; go('home');
+  } else if (k === 'to-habit') {
+    const it = itemById(f.dataset.id), stage = fd.get('stage') || 'new';
+    put('items', { ...it, kind: 'habit', target: fd.get('target') || 'daily', stage, interval: undefined, ease: undefined, nextDue: t + M.stageOf(stage).interval * M.DAY });
+    switching = null; toast('Now tracking it as a habit.');
+  } else if (k === 'to-reminder') {
+    const it = itemById(f.dataset.id), choice = M.REMIND_CHOICES[+$('#sl-switch').value], d = M.reminderDue(choice.id, t, S());
+    put('items', { ...it, kind: 'reminder', dueAt: d.dueAt, timed: d.timed, lastChoice: choice.id });
+    switching = null; toast('Now a reminder.');
+  } else if (k === 'sync') {
+    cfg.owner = (fd.get('owner') || '').trim().replace(/^@/, '');
+    cfg.repo = (fd.get('repo') || '').trim().replace(/^.*\//, '');
+    cfg.token = (fd.get('token') || '').trim();
+    saveCfg(); await syncNow(); render();
+  }
+});
+
+// tap-to-show tooltips on charts
+const tip = $('#tip');
+function showTip(el, x, y) {
+  const [a, ...rest] = el.dataset.tip.split('\n');
+  tip.innerHTML = `<b>${esc(a)}</b>${rest.length ? '<br>' + rest.map(esc).join('<br>') : ''}`;
+  tip.classList.add('show');
+  const r = tip.getBoundingClientRect();
+  tip.style.left = Math.max(8, Math.min(innerWidth - r.width - 8, x - r.width / 2)) + 'px';
+  tip.style.top = Math.max(8, y - r.height - 12) + 'px';
+}
+document.addEventListener('pointerover', e => { const el = e.target.closest('[data-tip]'); if (el && e.pointerType === 'mouse') showTip(el, e.clientX, e.clientY); });
+document.addEventListener('pointerout', e => { if (e.target.closest('[data-tip]') && e.pointerType === 'mouse') tip.classList.remove('show'); });
+document.addEventListener('pointerdown', e => { const el = e.target.closest('[data-tip]'); if (el) showTip(el, e.clientX, e.clientY); else tip.classList.remove('show'); });
+addEventListener('scroll', () => tip.classList.remove('show'), { passive: true });
+
+/* ================= lifecycle ================= */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { scheduleSync(0); requestRender(); }
+  else if (syncReady() && cfg.lastChange > cfg.lastSync) { clearTimeout(timer); syncNow(); }
+});
+addEventListener('online', () => scheduleSync(0));
+setInterval(() => { if (document.visibilityState === 'visible') scheduleSync(0); }, 5 * 60e3);
+// Only the chart views depend on width.
+let resizeT; addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (view === 'insights' || view === 'item') requestRender(); }, 150); });
+
+window.__tend = { get state() { return state; }, set state(v) { state = M.normalizeTend(v); writeLS(LS_STATE, state); render(); }, get sent() { return sent; }, set sent(v) { sent = M.normalizeSent(v); writeLS(LS_SENT, sent); render(); }, syncNow, cfg, M };
+
+setSync(syncReady() ? 'ok' : 'off');
+if (location.search.includes('n=') || location.search.includes('i=')) openFromUrl(location.href);
+else route();
+scheduleSync(0);
+</script>
+</body>
+</html>
