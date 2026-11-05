@@ -482,6 +482,18 @@ function render() {
   renderedView = view + '/' + param;
   const af = $('[data-autofocus]'); if (af && !('ontouchstart' in window)) af.focus();
   syncSliders();
+  updateBadge();
+}
+
+// The red number on the home-screen icon (iPhone home-screen apps and installed desktop apps).
+let lastBadge = null;
+function updateBadge() {
+  if (!('setAppBadge' in navigator)) return;
+  if ('Notification' in window && Notification.permission !== 'granted') return;
+  const n = M.badgeCount(state, sent, now());
+  if (n === lastBadge) return;
+  lastBadge = n;
+  (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
 }
 
 let renderedView = '';
@@ -1052,7 +1064,7 @@ addEventListener('scroll', () => tip.classList.remove('show'), { passive: true }
 
 /* ================= lifecycle ================= */
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { scheduleSync(0); requestRender(); }
+  if (document.visibilityState === 'visible') { lastBadge = null; scheduleSync(0); requestRender(); }
   else if (syncReady() && cfg.lastChange > cfg.lastSync) { clearTimeout(timer); syncNow(); }
 });
 addEventListener('online', () => scheduleSync(0));

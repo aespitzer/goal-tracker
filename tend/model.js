@@ -415,6 +415,23 @@ export function outcomes(sent, tend, now) {
   });
 }
 
+// The home-screen badge: items Tend has notified you about in the last week that you
+// haven't answered since. Each item counts once, however many times it was sent.
+export function badgeCount(tend, sent, now) {
+  const answers = liveAnswers(tend);
+  const waiting = new Set();
+  for (const s of sent.sends || []) {
+    if (!['spread', 'group', 'timed'].includes(s.mode) || s.delivered === 0 || now - s.at > 7 * DAY) continue;
+    for (const id of s.items || []) {
+      const it = tend.items[id];
+      if (!it || it.deleted || (it.status || 'active') !== 'active') continue;
+      if (answers.some(a => a.itemId === id && a.at >= s.at)) continue;
+      waiting.add(id);
+    }
+  }
+  return waiting.size;
+}
+
 // What you said up front: reminders around midday planning time, habits later.
 export function hourPrior(h, kind) {
   h = ((h % 24) + 24) % 24;

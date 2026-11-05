@@ -5,13 +5,18 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data && e.data.text() }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'Tend', {
+  const shown = self.registration.showNotification(d.title || 'Tend', {
     body: d.body || '',
     tag: d.nid || undefined,
     icon: 'icon-192.png',
     badge: 'icon-192.png',
     data: { url: d.url || './', nid: d.nid },
-  }));
+  });
+  // The red number on the home-screen icon: check-ins waiting for an answer.
+  const badge = typeof d.badge === 'number' && self.navigator.setAppBadge
+    ? (d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge()).catch(() => {})
+    : null;
+  e.waitUntil(Promise.all([shown, badge]));
 });
 
 self.addEventListener('notificationclick', e => {

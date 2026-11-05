@@ -68,14 +68,16 @@ function markSent(i) {
   const answered = prev && M.liveAnswers(tend).some(a => a.itemId === i.id && a.at >= prev.at);
   sent.itemSends[i.id] = { at: NOW, n: !prev || answered ? 1 : (prev.n || 1) + 1 };
 }
-function itemPayload(items, nid) {
+// Badge count as of this send: earlier unanswered items plus the ones going out now.
+const badgeWith = send => M.badgeCount(tend, { sends: [...sent.sends, { ...send, delivered: 1 }] }, NOW);
+function itemPayload(items, nid, badge) {
   const url = `${M.APP_URL}?n=${nid}&i=${items.map(i => encodeURIComponent(i.id)).join(',')}`;
   if (items.length === 1) {
     const it = items[0];
-    if (it.kind === 'habit') return { nid, title: it.text, body: 'When did you last do this?', url };
-    return { nid, title: it.text, body: `Added ${M.itemAddedLabel(it, s.tz)}. When should it come back?`, url };
+    if (it.kind === 'habit') return { nid, title: it.text, body: 'When did you last do this?', url, badge };
+    return { nid, title: it.text, body: `Added ${M.itemAddedLabel(it, s.tz)}. When should it come back?`, url, badge };
   }
-  return { nid, title: `${items.length} quick check-ins`, body: items.map(i => i.text).join(' · '), url };
+  return { nid, title: `${items.length} quick check-ins`, body: items.map(i => i.text).join(' · '), url, badge };
 }
 function digestPayload(nid) {
   const answers = M.liveAnswers(tend);
@@ -122,7 +124,7 @@ async function main() {
   const timed = M.activeItems(tend).filter(i => i.kind === 'reminder' && i.timed && (i.dueAt ?? Infinity) <= NOW && M.backoffOk(i.id, sent, tend, NOW));
   if (timed.length) {
     const send = record('timed', timed);
-    const r = await push(itemPayload(timed, send.nid));
+    const r = await push(itemPayload(timed, send.nid, badgeWith(send)));
     send.delivered = r.ok;
     sent.sends.push(send); changed = true;
     for (const i of timed) markSent(i);
@@ -156,7 +158,7 @@ async function main() {
       if (!items.length) { slot.state = 'empty'; changed = true; console.log('Nothing due for this slot.'); }
       else {
         send = record(plan.mode, items, { probe: !!slot.probe });
-        payload = itemPayload(items, send.nid);
+        payload = itemPayload(items, send.nid, badgeWith(send));
         for (const i of items) markSent(i);
       }
     }
