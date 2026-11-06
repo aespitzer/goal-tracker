@@ -13,9 +13,11 @@ self.addEventListener('push', e => {
     data: { url: d.url || './', nid: d.nid },
   });
   // The red number on the home-screen icon: check-ins waiting for an answer.
-  const badge = typeof d.badge === 'number' && self.navigator.setAppBadge
-    ? (d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge()).catch(() => {})
-    : null;
+  let badge = null;
+  try {
+    if (typeof d.badge === 'number' && self.navigator.setAppBadge)
+      badge = Promise.resolve(d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge()).catch(() => {});
+  } catch {}
   e.waitUntil(Promise.all([shown, badge]));
 });
 
