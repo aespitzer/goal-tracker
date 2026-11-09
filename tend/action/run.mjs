@@ -112,7 +112,7 @@ async function main() {
   if (!devices.length) return setStatus(false, 'No device has notifications turned on. Do step 2 in Settings → Notifications on your phone.');
 
   const outs = M.outcomes(sent, tend, NOW);
-  if (!sent.plan || sent.plan.date !== win.date) {
+  if (!sent.plan || sent.plan.date !== win.date || (sent.plan.mode === 'hourly') !== M.unlimited(s)) {
     sent.budget = M.adaptBudget(sent.budget, outs, NOW, s);
     sent.plan = M.planDay({ now: NOW, win, s, outs, budget: sent.budget });
     changed = true;
@@ -134,8 +134,12 @@ async function main() {
   // Planned slots: send the earliest one that's come due. A slot more than 3 hours late
   // (the Action can be delayed) is dropped rather than sent at an hour it wasn't chosen for.
   const plan = sent.plan;
-  for (const sl of plan.slots) if (sl.state === 'planned' && NOW - sl.at > 3 * M.HOUR) { sl.state = 'late'; changed = true; }
-  const slot = plan.slots.find(sl => sl.state === 'planned' && sl.at <= NOW);
+  const hourly = plan.mode === 'hourly';
+  // With no daily limit there's a slot every hour, so only the latest one that's come due matters.
+  const lateAfter = hourly ? 0.9 * M.HOUR : 3 * M.HOUR;
+  const ready = plan.slots.filter(sl => sl.state === 'planned' && sl.at <= NOW);
+  for (const sl of plan.slots) if (sl.state === 'planned' && NOW - sl.at > lateAfter && !(hourly && sl === ready[ready.length - 1])) { sl.state = 'late'; changed = true; }
+  const slot = hourly ? ready[ready.length - 1] : plan.slots.find(sl => sl.state === 'planned' && sl.at <= NOW);
   if (slot) {
     const remaining = plan.slots.filter(sl => sl.state === 'planned').length;
     const firstToday = plan.slots.every(sl => sl === slot || sl.state === 'planned' || sl.state === 'late' || sl.state === 'empty');
@@ -153,11 +157,11 @@ async function main() {
         .filter(i => M.backoffOk(i.id, sent, tend, NOW))
         .map(i => ({ i, p: M.priority(i, tend, NOW) + (i.kind === prefer ? 10 : 0) }))
         .sort((a, b) => b.p - a.p).map(x => x.i);
-      const k = plan.mode === 'group' ? Math.min(5, cands.length) : (cands.length > 2 * remaining ? 2 : 1);
+      const k = plan.mode === 'group' || hourly ? Math.min(5, cands.length) : (cands.length > 2 * remaining ? 2 : 1);
       const items = cands.slice(0, k);
       if (!items.length) { slot.state = 'empty'; changed = true; console.log('Nothing due for this slot.'); }
       else {
-        send = record(plan.mode, items, { probe: !!slot.probe });
+        send = record(hourly ? (items.length > 1 ? 'group' : 'spread') : plan.mode, items, { probe: !!slot.probe });
         payload = itemPayload(items, send.nid, badgeWith(send));
         for (const i of items) markSent(i);
       }

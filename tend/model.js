@@ -482,7 +482,11 @@ export function modeModel(outs) {
 // Starts at your setting. An extra "probe" ping goes out about one day in five; if you
 // answer most probes and most pings overall, the budget goes up by one. If most pings go
 // unanswered, it goes down. At most one change a week, never above the hard cap.
+// budgetMax 0 means no daily limit: every waking hour is a chance to send whatever is due.
+export const unlimited = s => !s.budgetMax;
+
 export function adaptBudget(budget, outs, now, s) {
+  if (unlimited(s)) return budget || { value: null, startSeen: s.budgetStart, changedAt: now, history: [{ at: now, value: null, why: 'No daily limit' }] };
   if (!budget) return { value: clamp(s.budgetStart, 1, s.budgetMax), startSeen: s.budgetStart, changedAt: now, history: [{ at: now, value: s.budgetStart, why: 'Starting point' }] };
   const b = { ...budget, history: [...(budget.history || [])] };
   if (b.startSeen !== s.budgetStart) {
@@ -518,6 +522,14 @@ export function adaptBudget(budget, outs, now, s) {
 // tried keep wide uncertainty, so they still get tried now and then.
 export function planDay({ now, win, s, outs, budget, rand = Math.random }) {
   const tz = s.tz;
+  if (unlimited(s)) {
+    const slots = [];
+    for (let h = Math.ceil(s.wakeStart); h < s.wakeEnd; h++) {
+      const at = zTime(win.date, h, tz);
+      if (at >= now - 60 * 60e3 && at < win.end) slots.push({ at, hour: h % 24, probe: false, state: 'planned' });
+    }
+    return { date: win.date, mode: 'hourly', probe: false, budget: null, madeAt: now, slots };
+  }
   const byKind = { reminder: hourModel(outs, 'reminder'), habit: hourModel(outs, 'habit') };
   const modes = modeModel(outs);
   let n = budget.value;

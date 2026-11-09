@@ -854,20 +854,25 @@ function viewInsights() {
   const budget = sent.budget;
   h += '<ul class="facts" style="margin-top:14px">';
   if (bR || bH) h += `<li><b>Best times so far</b>${bR ? `Reminders around ${bR}. ` : ''}${bH ? `Habit check-ins around ${bH}.` : ''}</li>`;
-  h += `<li><b>${budget ? budget.value : s.budgetStart} pings a day</b>${budget && budget.history && budget.history.length > 1 ? esc(budget.history[budget.history.length - 1].why) + '. ' : ''}About one day in five gets an extra ping; answering those quickly raises the number, ignoring pings lowers it. Never more than ${s.budgetMax}.</li>`;
+  if (M.unlimited(s)) h += `<li><b>No daily limit</b>Anything that comes due goes out at the next hour you're reachable (${hourLabel(s.wakeStart)} to ${hourLabel(s.wakeEnd)}), up to five per ping. Things you don't answer still wait longer before they're asked again.</li>`;
+  else h += `<li><b>${budget && budget.value ? budget.value : s.budgetStart} pings a day</b>${budget && budget.history && budget.history.length > 1 ? esc(budget.history[budget.history.length - 1].why) + '. ' : ''}About one day in five gets an extra ping; answering those quickly raises the number, ignoring pings lowers it. Never more than ${s.budgetMax}.</li>`;
   if (mm.group.sends + mm.spread.sends) h += `<li><b>Grouped or one at a time</b>Grouped pings: ${Math.round(mm.group.mean * 100)}% of items answered (${mm.group.sends} sent). One at a time: ${Math.round(mm.spread.mean * 100)}% (${mm.spread.sends} sent).</li>`;
   if (sent.plan && sent.plan.date === M.zDate(t, s.tz)) {
     const times = sent.plan.slots.map(x => new Date(x.at).toLocaleTimeString(undefined, { hour: 'numeric', timeZone: s.tz }) + (x.state === 'sent' ? ' (sent)' : x.state === 'empty' ? ' (nothing due)' : x.state === 'late' ? ' (missed)' : ''));
-    h += `<li><b>Today's plan</b>${sent.plan.mode === 'group' ? 'One grouped ping' : `${times.length} ${times.length === 1 ? 'ping' : 'pings'}`}: ${esc(times.join(', ') || 'none')}.</li>`;
+    if (sent.plan.mode === 'hourly') {
+      const n = sent.plan.slots.filter(x => x.state === 'sent').length;
+      h += `<li><b>Today so far</b>${n ? `${n} ${n === 1 ? 'ping' : 'pings'} sent.` : 'Nothing sent yet.'}</li>`;
+    } else h += `<li><b>Today's plan</b>${sent.plan.mode === 'group' ? 'One grouped ping' : `${times.length} ${times.length === 1 ? 'ping' : 'pings'}`}: ${esc(times.join(', ') || 'none')}.</li>`;
   }
   h += '</ul>';
   return h;
 }
 
 /* ---------- settings ---------- */
+function hourLabel(h) { const hh = h % 24; return hh === 0 ? 'midnight' : hh < 12 ? hh + ' am' : hh === 12 ? 'noon' : (hh - 12) + ' pm'; }
 function hourOpts(sel, from, to) {
   let o = '';
-  for (let h = from; h <= to; h++) { const hh = h % 24; const lab = hh === 0 ? 'Midnight' : hh < 12 ? hh + ' am' : hh === 12 ? 'Noon' : (hh - 12) + ' pm'; o += `<option value="${h}" ${h === sel ? 'selected' : ''}>${lab}${h >= 24 ? ' (next day)' : ''}</option>`; }
+  for (let h = from; h <= to; h++) { const l = hourLabel(h); o += `<option value="${h}" ${h === sel ? 'selected' : ''}>${l[0].toUpperCase() + l.slice(1)}${h >= 24 ? ' (next day)' : ''}</option>`; }
   return o;
 }
 let testMsg = '', pushMsg = '';
@@ -924,8 +929,8 @@ function viewSettings() {
     </div>
     <p class="small ink2">Nothing is sent outside these hours. Within them, Tend tries different times and learns when you answer. Time zone: ${esc(s.tz)}${s.tz !== deviceTz ? ` <button class="btn quiet" data-act="use-tz" style="min-height:0;padding:0">Use ${esc(deviceTz)}</button>` : ''}.</p>
     <div class="two">
-      <label class="f"><span>Pings a day to start</span><select data-act-change="budgetStart">${[1, 2, 3, 4, 5].map(n => `<option ${n === s.budgetStart ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-      <label class="f"><span>Never more than</span><select data-act-change="budgetMax">${[2, 3, 4, 5, 6, 8].map(n => `<option ${n === s.budgetMax ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      ${M.unlimited(s) ? '' : `<label class="f"><span>Pings a day to start</span><select data-act-change="budgetStart">${[1, 2, 3, 4, 5].map(n => `<option ${n === s.budgetStart ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`}
+      <label class="f"><span>Never more than</span><select data-act-change="budgetMax">${[2, 3, 4, 5, 6, 8].map(n => `<option ${n === s.budgetMax ? 'selected' : ''}>${n}</option>`).join('')}<option value="0" ${M.unlimited(s) ? 'selected' : ''}>No limit</option></select></label>
     </div>
     <label class="f"><span>Weekly summary</span><select data-act-change="digestDay">${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d, i) => `<option value="${i}" ${i === s.digestDay ? 'selected' : ''}>${d}</option>`).join('')}</select><small>Sent in the first ping of that day: which habits need the most help.</small></label>
   </div>`;
@@ -993,8 +998,8 @@ document.addEventListener('change', e => {
     const s = S(), patch = { [a]: v };
     if (a === 'wakeEnd' && v - s.wakeStart < 4) { toast('Keep at least four hours between start and end.'); render(); return; }
     if (a === 'wakeStart' && s.wakeEnd - v < 4) { toast('Keep at least four hours between start and end.'); render(); return; }
-    if (a === 'budgetStart' && v > s.budgetMax) patch.budgetMax = v;
-    if (a === 'budgetMax' && v < s.budgetStart) patch.budgetStart = v;
+    if (a === 'budgetStart' && !M.unlimited(s) && v > s.budgetMax) patch.budgetMax = v;
+    if (a === 'budgetMax' && v && v < s.budgetStart) patch.budgetStart = v;
     setSettings(patch);
   }
 });
